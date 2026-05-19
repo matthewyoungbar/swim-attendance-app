@@ -29,7 +29,7 @@ Calendar sync
 - AWS CLI v2 — [install guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 - AWS CDK CLI — `npm install -g aws-cdk`
 - An AWS account with credentials configured
-- (Optional) A Google Calendar service account for practice syncing
+- (Optional) A public Google Calendar ID for practice syncing — no API key or credentials needed
 
 ---
 
@@ -51,7 +51,7 @@ cd backend
 PORT=8080 go run ./cmd/lambda
 ```
 
-With Google Calendar sync enabled:
+With Google Calendar sync enabled (calendar must be public):
 
 ```bash
 cd backend
@@ -59,6 +59,8 @@ PORT=8080 \
 GOOGLE_CALENDAR_ID="your-calendar-id@group.calendar.google.com" \
 go run ./cmd/lambda
 ```
+
+The calendar ID can be found in Google Calendar under **Settings → your calendar → Integrate calendar**. No API key is required — practices are fetched from the public ICS feed.
 
 The backend listens on `http://localhost:8080`. When `AWS_LAMBDA_FUNCTION_NAME` is not set it runs as a plain HTTP server.
 
@@ -102,14 +104,10 @@ make build
 cd cdk
 
 # dev
-GOOGLE_CALENDAR_ID="..." \
-GOOGLE_CREDENTIALS_JSON="$(cat path/to/service-account.json)" \
-cdk deploy -c env=dev
+GOOGLE_CALENDAR_ID="your-calendar-id@group.calendar.google.com" cdk deploy -c env=dev
 
 # prod
-GOOGLE_CALENDAR_ID="..." \
-GOOGLE_CREDENTIALS_JSON="$(cat path/to/service-account.json)" \
-cdk deploy -c env=prod
+GOOGLE_CALENDAR_ID="your-calendar-id@group.calendar.google.com" cdk deploy -c env=prod
 ```
 
 CDK will print the stack outputs when complete:

@@ -56,9 +56,6 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 	if v := os.Getenv("GOOGLE_CALENDAR_ID"); v != "" {
 		lambdaEnv["GOOGLE_CALENDAR_ID"] = jsii.String(v)
 	}
-	if v := os.Getenv("GOOGLE_CREDENTIALS_JSON"); v != "" {
-		lambdaEnv["GOOGLE_CREDENTIALS_JSON"] = jsii.String(v)
-	}
 
 	fn := awslambda.NewFunction(stack, jsii.String("Api"), &awslambda.FunctionProps{
 		FunctionName: jsii.String("swim-signup-api" + sfx),
@@ -83,7 +80,6 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 				awslambda.HttpMethod_GET,
 				awslambda.HttpMethod_POST,
 				awslambda.HttpMethod_DELETE,
-				awslambda.HttpMethod_OPTIONS,
 			},
 			AllowedHeaders: &[]*string{
 				jsii.String("Content-Type"),
