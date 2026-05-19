@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourorg/swim-signup/internal/models"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/models"
 )
 
 const defaultCapacity = 20
@@ -46,7 +46,7 @@ func (c *Client) FetchUpcomingPractices(ctx context.Context, days int) ([]models
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch ICS: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("fetch ICS %s: HTTP %d", icsURL, resp.StatusCode)
 	}
 
 	all, err := parseICS(resp.Body)

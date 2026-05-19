@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourorg/swim-signup/internal/calendar"
-	"github.com/yourorg/swim-signup/internal/db"
-	"github.com/yourorg/swim-signup/internal/models"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/calendar"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/db"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/models"
 )
 
 // Handler holds all dependencies and implements http.Handler.

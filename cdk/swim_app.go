@@ -57,7 +57,7 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 		lambdaEnv["GOOGLE_CALENDAR_ID"] = jsii.String(v)
 	}
 
-	fn := awslambda.NewFunction(stack, jsii.String("Api"), &awslambda.FunctionProps{
+	fn := awslambda.NewFunction(stack, jsii.String("API"), &awslambda.FunctionProps{
 		FunctionName: jsii.String("swim-signup-api" + sfx),
 		Runtime:      awslambda.Runtime_PROVIDED_AL2023(),
 		Architecture: awslambda.Architecture_ARM_64(),

@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/yourorg/swim-signup/internal/calendar"
-	"github.com/yourorg/swim-signup/internal/db"
-	"github.com/yourorg/swim-signup/internal/handlers"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/calendar"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/db"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/handlers"
 )
 
 // LambdaFunctionURLRequest matches the Lambda Function URL payload v2 format.

@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/yourorg/swim-signup/internal/models"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/models"
 )
 
 type Client struct {
