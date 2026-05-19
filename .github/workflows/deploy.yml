@@ -1,0 +1,103 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test
+        run: go test ./...
+        working-directory: backend
+
+      - name: Build Lambda binary
+        run: make build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zip
+          path: backend/lambda.zip
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Build
+        run: yarn build
+        working-directory: frontend
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+  deploy:
+    needs: [build-backend, build-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-zip
+          path: backend/
+
+      - name: Install CDK CLI
+        run: npm install -g aws-cdk
+
+      - name: Deploy CDK stack
+        working-directory: cdk
+        env:
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
+        run: cdk deploy -c env=dev --require-approval never --outputs-file outputs.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: Deploy frontend to S3
+        working-directory: cdk
+        run: |
+          BUCKET=$(jq -r '."SwimStack-prod".UiBucketName' outputs.json)
+          aws s3 sync ../frontend/dist/ s3://$BUCKET --delete
