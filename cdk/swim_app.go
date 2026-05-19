@@ -57,7 +57,7 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 		lambdaEnv["GOOGLE_CALENDAR_ID"] = jsii.String(v)
 	}
 
-	fn := awslambda.NewFunction(stack, jsii.String("API"), &awslambda.FunctionProps{
+	fn := awslambda.NewFunction(stack, jsii.String("Api"), &awslambda.FunctionProps{
 		FunctionName: jsii.String("swim-signup-api" + sfx),
 		Runtime:      awslambda.Runtime_PROVIDED_AL2023(),
 		Architecture: awslambda.Architecture_ARM_64(),
@@ -91,8 +91,13 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 
 	// ─── S3 (UI) ─────────────────────────────────────────────────────────────
 
+	bucketPrefix := os.Getenv("BUCKET_PREFIX")
+	if bucketPrefix == "" {
+		panic("BUCKET_PREFIX env var is required")
+	}
+
 	uiBucket := awss3.NewBucket(stack, jsii.String("UiBucket"), &awss3.BucketProps{
-		BucketName:           jsii.String("swim-signup-ui" + sfx),
+		BucketName:           jsii.String(bucketPrefix + sfx),
 		WebsiteIndexDocument: jsii.String("index.html"),
 		WebsiteErrorDocument: jsii.String("index.html"),
 		PublicReadAccess:     jsii.Bool(true),

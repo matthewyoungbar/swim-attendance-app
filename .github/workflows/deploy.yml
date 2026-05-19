@@ -89,6 +89,7 @@ jobs:
         working-directory: cdk
         env:
           GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
+          BUCKET_PREFIX: ${{ vars.BUCKET_PREFIX }}
         run: cdk deploy -c env=dev --require-approval never --outputs-file outputs.json
 
       - uses: actions/download-artifact@v6
