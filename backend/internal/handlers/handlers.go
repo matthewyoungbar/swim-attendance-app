@@ -153,7 +153,7 @@ func (h *Handler) syncPractices(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	practices, err := h.cal.FetchUpcomingPractices(ctx, 60)
+	practices, err := h.cal.FetchUpcomingPractices(ctx, 7)
 	if err != nil {
 		log.Printf("ERROR syncPractices fetch: %v", err)
 		jsonError(w, "failed to fetch from calendar", http.StatusInternalServerError)

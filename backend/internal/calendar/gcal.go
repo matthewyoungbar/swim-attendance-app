@@ -8,13 +8,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/matthewyoungbar/swim-attendance-app/internal/models"
 )
 
-const defaultCapacity = 20
+const defaultCapacity = 30
 
 type Client struct {
 	calendarID string
@@ -49,17 +50,20 @@ func (c *Client) FetchUpcomingPractices(ctx context.Context, days int) ([]models
 		return nil, fmt.Errorf("fetch ICS %s: HTTP %d", icsURL, resp.StatusCode)
 	}
 
-	all, err := parseICS(resp.Body)
+	all, themes, err := parseICS(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
+	cutoff := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
 	now := time.Now().UTC()
-	cutoff := now.Add(time.Duration(days) * 24 * time.Hour)
 
 	var upcoming []models.Practice
 	for _, p := range all {
-		if !p.StartTime.Before(now) && !p.StartTime.After(cutoff) {
+		if !p.StartTime.After(cutoff) && p.EndTime.After(now) {
+			if theme, ok := themes[p.StartTime.Format("2006-01-02")]; ok {
+				p.Theme = theme
+			}
 			upcoming = append(upcoming, p)
 		}
 	}
@@ -73,7 +77,7 @@ type icsProp struct {
 	params map[string]string
 }
 
-func parseICS(r io.Reader) ([]models.Practice, error) {
+func parseICS(r io.Reader) ([]models.Practice, map[string]string, error) {
 	scanner := bufio.NewScanner(r)
 
 	// Unfold continuation lines (RFC 5545 §3.1)
@@ -89,10 +93,11 @@ func parseICS(r io.Reader) ([]models.Practice, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read ICS: %w", err)
+		return nil, nil, fmt.Errorf("read ICS: %w", err)
 	}
 
 	var practices []models.Practice
+	themes := make(map[string]string) // "2006-01-02" → theme title
 	var inEvent bool
 	var props map[string]icsProp
 
@@ -103,8 +108,23 @@ func parseICS(r io.Reader) ([]models.Practice, error) {
 			props = make(map[string]icsProp)
 		case "END:VEVENT":
 			if inEvent {
-				if p, err := eventToPractice(props); err == nil {
-					practices = append(practices, p)
+				dtstart := props["DTSTART"]
+				if len(dtstart.value) == 8 {
+					// All-day event: treat as theme for that date
+					if t, err := time.Parse("20060102", dtstart.value); err == nil {
+						title := props["SUMMARY"].value
+						if rrule, ok := props["RRULE"]; ok {
+							expandThemeDates(t, rrule.value, title, themes)
+						} else {
+							themes[t.Format("2006-01-02")] = title
+						}
+					}
+				} else if p, err := eventToPractice(props); err == nil {
+					if rrule, ok := props["RRULE"]; ok {
+						practices = append(practices, expandRRULE(p, rrule.value)...)
+					} else {
+						practices = append(practices, p)
+					}
 				}
 				inEvent = false
 			}
@@ -119,7 +139,7 @@ func parseICS(r io.Reader) ([]models.Practice, error) {
 		}
 	}
 
-	return practices, nil
+	return practices, themes, nil
 }
 
 func parseLine(line string) (string, icsProp) {
@@ -186,6 +206,160 @@ func eventToPractice(props map[string]icsProp) (models.Practice, error) {
 		Capacity:    capacity,
 		TTL:         endTime.Add(7 * 24 * time.Hour).Unix(),
 	}, nil
+}
+
+var weekdayAbbrev = [7]string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
+
+// expandThemeDates populates the themes map for each date a recurring all-day event falls on.
+func expandThemeDates(start time.Time, rrule, title string, themes map[string]string) {
+	params := map[string]string{}
+	for _, part := range strings.Split(rrule, ";") {
+		if k, v, ok := strings.Cut(part, "="); ok {
+			params[k] = v
+		}
+	}
+
+	freq := params["FREQ"]
+	if freq != "DAILY" && freq != "WEEKLY" {
+		themes[start.Format("2006-01-02")] = title
+		return
+	}
+
+	byday := map[string]bool{}
+	for _, d := range strings.Split(params["BYDAY"], ",") {
+		if d != "" {
+			byday[d] = true
+		}
+	}
+
+	var until time.Time
+	if u := params["UNTIL"]; u != "" {
+		if len(u) == 8 {
+			until, _ = time.Parse("20060102", u)
+		} else {
+			until, _ = time.Parse("20060102T150405Z", u)
+		}
+	}
+	if until.IsZero() {
+		until = time.Now().UTC().Add(90 * 24 * time.Hour)
+	}
+
+	count := 0
+	if c := params["COUNT"]; c != "" {
+		count, _ = strconv.Atoi(c)
+	}
+
+	cur := start
+	n := 0
+	for {
+		if count > 0 && n >= count {
+			break
+		}
+		if cur.After(until) {
+			break
+		}
+		themes[cur.Format("2006-01-02")] = title
+		n++
+
+		switch freq {
+		case "DAILY":
+			cur = cur.AddDate(0, 0, 1)
+		case "WEEKLY":
+			if len(byday) == 0 {
+				cur = cur.AddDate(0, 0, 7)
+			} else {
+				for i := 1; i <= 7; i++ {
+					next := cur.AddDate(0, 0, i)
+					if byday[weekdayAbbrev[next.Weekday()]] {
+						cur = next
+						break
+					}
+				}
+			}
+		}
+	}
+}
+
+// expandRRULE generates individual Practice instances from a recurring event.
+// Handles FREQ=DAILY and FREQ=WEEKLY (with BYDAY), plus UNTIL and COUNT.
+func expandRRULE(base models.Practice, rrule string) []models.Practice {
+	params := map[string]string{}
+	for _, part := range strings.Split(rrule, ";") {
+		if k, v, ok := strings.Cut(part, "="); ok {
+			params[k] = v
+		}
+	}
+
+	freq := params["FREQ"]
+	if freq != "DAILY" && freq != "WEEKLY" {
+		return []models.Practice{base}
+	}
+
+	byday := map[string]bool{}
+	for _, d := range strings.Split(params["BYDAY"], ",") {
+		if d != "" {
+			byday[d] = true
+		}
+	}
+
+	var until time.Time
+	if u := params["UNTIL"]; u != "" {
+		if len(u) == 8 {
+			until, _ = time.Parse("20060102", u)
+		} else {
+			until, _ = time.Parse("20060102T150405Z", u)
+		}
+	}
+	if until.IsZero() {
+		until = time.Now().UTC().Add(90 * 24 * time.Hour)
+	}
+
+	count := 0
+	if c := params["COUNT"]; c != "" {
+		count, _ = strconv.Atoi(c)
+	}
+
+	duration := base.EndTime.Sub(base.StartTime)
+	var out []models.Practice
+	cur := base.StartTime
+	n := 0
+
+	for {
+		if count > 0 && n >= count {
+			break
+		}
+		if cur.After(until) {
+			break
+		}
+
+		p := base
+		p.StartTime = cur
+		p.EndTime = cur.Add(duration)
+		p.ID = fmt.Sprintf("%s_%s", base.ID, cur.UTC().Format("20060102T150405"))
+		p.TTL = p.EndTime.Add(7 * 24 * time.Hour).Unix()
+		out = append(out, p)
+		n++
+
+		// Advance to next occurrence
+		switch freq {
+		case "DAILY":
+			cur = cur.AddDate(0, 0, 1)
+		case "WEEKLY":
+			if len(byday) == 0 {
+				cur = cur.AddDate(0, 0, 7)
+			} else {
+				for i := 1; i <= 7; i++ {
+					next := cur.AddDate(0, 0, i)
+					if byday[weekdayAbbrev[next.Weekday()]] {
+						cur = next
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return out
 }
 
 func parseICSTime(prop icsProp) (time.Time, error) {

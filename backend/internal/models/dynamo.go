@@ -19,6 +19,7 @@ type Practice struct {
 	EndTime     time.Time `json:"endTime" dynamodbav:"endTime"`
 	Capacity    int       `json:"capacity" dynamodbav:"capacity"`
 	SignupCount int       `json:"signupCount" dynamodbav:"signupCount"`
+	Theme       string    `json:"theme,omitempty" dynamodbav:"theme,omitempty"`
 	TTL         int64     `json:"-" dynamodbav:"ttl"`
 }
 

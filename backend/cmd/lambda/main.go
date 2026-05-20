@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	_ "time/tzdata" // embed timezone database for Lambda
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/matthewyoungbar/swim-attendance-app/internal/auth"

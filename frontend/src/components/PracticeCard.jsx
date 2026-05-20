@@ -57,6 +57,9 @@ export default function PracticeCard({ practice, onSignup, onCancel, disabled })
 
       <div className="practice-info">
         <h3 className="practice-title">{practice.title}</h3>
+        {practice.theme && (
+          <span className="practice-theme">{practice.theme}</span>
+        )}
         <div className="practice-meta">
           <span className="meta-item">
             <ClockIcon />
@@ -69,9 +72,6 @@ export default function PracticeCard({ practice, onSignup, onCancel, disabled })
             </span>
           )}
         </div>
-        {practice.description && (
-          <p className="practice-desc">{practice.description}</p>
-        )}
       </div>
 
       <div className="practice-actions">
