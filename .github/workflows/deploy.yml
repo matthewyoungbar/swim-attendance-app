@@ -90,6 +90,9 @@ jobs:
         env:
           GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
           BUCKET_PREFIX: ${{ secrets.BUCKET_PREFIX }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          WEBAUTHN_RPID: ${{ secrets.WEBAUTHN_RPID }}
+          WEBAUTHN_ORIGIN: ${{ secrets.WEBAUTHN_ORIGIN }}
         run: cdk deploy -c env=dev --require-approval never --outputs-file outputs.json
 
       - uses: actions/download-artifact@v8

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/auth"
 	"github.com/matthewyoungbar/swim-attendance-app/internal/calendar"
 	"github.com/matthewyoungbar/swim-attendance-app/internal/db"
 	"github.com/matthewyoungbar/swim-attendance-app/internal/handlers"
@@ -60,7 +61,12 @@ func main() {
 		}
 	}
 
-	h := handlers.New(dbClient, calClient)
+	wa, err := auth.NewWebAuthn()
+	if err != nil {
+		log.Fatalf("Failed to init WebAuthn: %v", err)
+	}
+
+	h := handlers.New(dbClient, calClient, wa)
 
 	// Local dev mode
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,27 +9,50 @@ import (
 	"strings"
 	"time"
 
+	walib "github.com/go-webauthn/webauthn/webauthn"
+	"github.com/matthewyoungbar/swim-attendance-app/internal/auth"
 	"github.com/matthewyoungbar/swim-attendance-app/internal/calendar"
 	"github.com/matthewyoungbar/swim-attendance-app/internal/db"
 	"github.com/matthewyoungbar/swim-attendance-app/internal/models"
 )
 
-// Handler holds all dependencies and implements http.Handler.
+type contextKey string
+
+const contextKeyEmail contextKey = "email"
+
 type Handler struct {
 	db  *db.Client
 	cal *calendar.Client
+	wa  *walib.WebAuthn
 }
 
-func New(dbClient *db.Client, calClient *calendar.Client) *Handler {
-	return &Handler{db: dbClient, cal: calClient}
+func New(dbClient *db.Client, calClient *calendar.Client, wa *walib.WebAuthn) *Handler {
+	return &Handler{db: dbClient, cal: calClient, wa: wa}
 }
 
-// ServeHTTP routes requests to the correct handler method.
+func emailFromCtx(r *http.Request) string {
+	v, _ := r.Context().Value(contextKeyEmail).(string)
+	return v
+}
+
+func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		jsonError(w, "unauthorized", http.StatusUnauthorized)
+		return "", false
+	}
+	claims, err := auth.VerifyToken(strings.TrimPrefix(header, "Bearer "))
+	if err != nil {
+		jsonError(w, "unauthorized", http.StatusUnauthorized)
+		return "", false
+	}
+	return claims.Email, true
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// CORS headers (adjust origin in production)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Swimmer-Email")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -38,42 +62,61 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(strings.TrimSuffix(r.URL.Path, "/"), "/api")
 	log.Printf("%s %s", r.Method, path)
 
+	// Public auth routes
+	switch {
+	case r.Method == http.MethodGet && path == "/auth/check":
+		h.checkUser(w, r)
+		return
+	case r.Method == http.MethodPost && path == "/auth/register/begin":
+		h.registerBegin(w, r)
+		return
+	case r.Method == http.MethodPost && path == "/auth/register/complete":
+		h.registerComplete(w, r)
+		return
+	case r.Method == http.MethodPost && path == "/auth/login/begin":
+		h.loginBegin(w, r)
+		return
+	case r.Method == http.MethodPost && path == "/auth/login/complete":
+		h.loginComplete(w, r)
+		return
+	}
+
+	// All remaining routes require a valid JWT
+	email, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := context.WithValue(r.Context(), contextKeyEmail, email)
+	r = r.WithContext(ctx)
+
 	switch {
 	case r.Method == http.MethodGet && path == "/practices":
 		h.listPractices(w, r)
-
 	case r.Method == http.MethodPost && path == "/practices/sync":
 		h.syncPractices(w, r)
-
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/practices/") && strings.HasSuffix(path, "/signups"):
-		// GET /practices/{id}/signups
 		parts := strings.Split(path, "/")
 		if len(parts) == 4 {
 			h.listSignups(w, r, parts[2])
 		} else {
 			jsonError(w, "not found", http.StatusNotFound)
 		}
-
 	case r.Method == http.MethodPost && path == "/signups":
 		h.createSignup(w, r)
-
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/signups/"):
-		// DELETE /signups/{practiceId}  (swimmer email from header)
 		practiceID := strings.TrimPrefix(path, "/signups/")
 		h.deleteSignup(w, r, practiceID)
-
 	case r.Method == http.MethodGet && path == "/my-signups":
 		h.mySignups(w, r)
-
 	default:
 		jsonError(w, "not found", http.StatusNotFound)
 	}
 }
 
 // GET /practices
-// Query params: ?email=swimmer@example.com (to check signup status)
 func (h *Handler) listPractices(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	email := emailFromCtx(r)
 
 	practices, err := h.db.GetPractices(ctx)
 	if err != nil {
@@ -82,12 +125,9 @@ func (h *Handler) listPractices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally check signup status for a given swimmer
-	email := r.URL.Query().Get("email")
 	var mySignupIDs map[string]bool
 	if email != "" {
-		signups, err := h.db.GetSignupsForSwimmer(ctx, email)
-		if err == nil {
+		if signups, err := h.db.GetSignupsForSwimmer(ctx, email); err == nil {
 			mySignupIDs = make(map[string]bool, len(signups))
 			for _, s := range signups {
 				mySignupIDs[s.PracticeID] = true
@@ -102,11 +142,10 @@ func (h *Handler) listPractices(w http.ResponseWriter, r *http.Request) {
 			IsSignedUp: mySignupIDs[p.ID],
 		})
 	}
-
 	jsonOK(w, result)
 }
 
-// POST /practices/sync  — syncs next 60 days from Google Calendar into DynamoDB
+// POST /practices/sync
 func (h *Handler) syncPractices(w http.ResponseWriter, r *http.Request) {
 	if h.cal == nil {
 		jsonError(w, "calendar not configured", http.StatusServiceUnavailable)
@@ -130,7 +169,6 @@ func (h *Handler) syncPractices(w http.ResponseWriter, r *http.Request) {
 			synced++
 		}
 	}
-
 	jsonOK(w, map[string]int{"synced": synced, "failed": failed})
 }
 
@@ -149,18 +187,28 @@ func (h *Handler) listSignups(w http.ResponseWriter, r *http.Request, practiceID
 // POST /signups
 func (h *Handler) createSignup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	swimmerEmail := emailFromCtx(r)
 
 	var req models.SignupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.PracticeID == "" || req.SwimmerEmail == "" || req.SwimmerName == "" {
-		jsonError(w, "practiceId, swimmerEmail, and swimmerName are required", http.StatusBadRequest)
+	if req.PracticeID == "" {
+		jsonError(w, "practiceId is required", http.StatusBadRequest)
 		return
 	}
 
-	// Check practice exists and has capacity
+	user, err := h.db.GetUser(ctx, swimmerEmail)
+	if err != nil || user == nil {
+		jsonError(w, "user not found", http.StatusNotFound)
+		return
+	}
+	swimmerName := user.FirstName + " " + user.LastName
+	if user.PreferredName != "" {
+		swimmerName = user.PreferredName + " " + user.LastName
+	}
+
 	practice, err := h.db.GetPractice(ctx, req.PracticeID)
 	if err != nil || practice == nil {
 		jsonError(w, "practice not found", http.StatusNotFound)
@@ -177,12 +225,11 @@ func (h *Handler) createSignup(w http.ResponseWriter, r *http.Request) {
 
 	signup := models.Signup{
 		PracticeID:   req.PracticeID,
-		SwimmerEmail: req.SwimmerEmail,
-		SwimmerName:  req.SwimmerName,
+		SwimmerEmail: swimmerEmail,
+		SwimmerName:  swimmerName,
 		RegisteredAt: time.Now().UTC(),
 		Notes:        req.Notes,
 	}
-
 	if err := h.db.CreateSignup(ctx, signup); err != nil {
 		if err.Error() == "already_signed_up" {
 			jsonError(w, "you are already signed up for this practice", http.StatusConflict)
@@ -193,7 +240,6 @@ func (h *Handler) createSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Increment signup count
 	if err := h.db.IncrementSignupCount(ctx, req.PracticeID, 1); err != nil {
 		log.Printf("WARN failed to increment signup count: %v", err)
 	}
@@ -202,19 +248,11 @@ func (h *Handler) createSignup(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, signup)
 }
 
-// DELETE /signups/{practiceId}  — swimmer email read from X-Swimmer-Email header
+// DELETE /signups/{practiceId}
 func (h *Handler) deleteSignup(w http.ResponseWriter, r *http.Request, practiceID string) {
 	ctx := r.Context()
-	swimmerEmail := r.Header.Get("X-Swimmer-Email")
-	if swimmerEmail == "" {
-		swimmerEmail = r.URL.Query().Get("email")
-	}
-	if swimmerEmail == "" {
-		jsonError(w, "X-Swimmer-Email header or ?email= required", http.StatusBadRequest)
-		return
-	}
+	swimmerEmail := emailFromCtx(r)
 
-	// Check signup exists
 	existing, err := h.db.GetSignup(ctx, practiceID, swimmerEmail)
 	if err != nil || existing == nil {
 		jsonError(w, "signup not found", http.StatusNotFound)
@@ -227,22 +265,16 @@ func (h *Handler) deleteSignup(w http.ResponseWriter, r *http.Request, practiceI
 		return
 	}
 
-	// Decrement signup count
 	if err := h.db.IncrementSignupCount(ctx, practiceID, -1); err != nil {
 		log.Printf("WARN failed to decrement signup count: %v", err)
 	}
-
 	jsonOK(w, map[string]string{"message": "signup cancelled"})
 }
 
-// GET /my-signups?email=swimmer@example.com
+// GET /my-signups
 func (h *Handler) mySignups(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	email := r.URL.Query().Get("email")
-	if email == "" {
-		jsonError(w, "email query param required", http.StatusBadRequest)
-		return
-	}
+	email := emailFromCtx(r)
 
 	signups, err := h.db.GetSignupsForSwimmer(ctx, email)
 	if err != nil {
@@ -252,8 +284,6 @@ func (h *Handler) mySignups(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOK(w, signups)
 }
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
 
 func jsonOK(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")

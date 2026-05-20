@@ -1,59 +1,32 @@
 import React, { useState, useCallback } from 'react'
 import PracticeCard from './components/PracticeCard'
+import AuthFlow from './components/AuthFlow'
 import { usePractices } from './hooks/usePractices'
 import { api } from './lib/api'
-
-const STORAGE_KEY = 'swim_signup_user'
-
-function loadUser() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null
-  } catch {
-    return null
-  }
-}
-
-function saveUser(user) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
-}
+import { getStoredUser, clearAuth } from './lib/auth'
 
 export default function App() {
-  const [user, setUser] = useState(loadUser)
-  const [loginForm, setLoginForm] = useState({ name: '', email: '' })
-  const [loginError, setLoginError] = useState(null)
+  const [user, setUser] = useState(getStoredUser)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState(null)
   const [tab, setTab] = useState('upcoming') // 'upcoming' | 'mine'
 
-  const { practices, loading, error, reload } = usePractices(user?.email)
-
-  function handleLogin(e) {
-    e.preventDefault()
-    const name = loginForm.name.trim()
-    const email = loginForm.email.trim().toLowerCase()
-    if (!name || !email || !email.includes('@')) {
-      setLoginError('Please enter a valid name and email.')
-      return
-    }
-    const u = { name, email }
-    setUser(u)
-    saveUser(u)
-  }
+  const { practices, loading, error, reload } = usePractices()
 
   function handleLogout() {
     setUser(null)
-    localStorage.removeItem(STORAGE_KEY)
+    clearAuth()
   }
 
   const handleSignup = useCallback(async (practiceId) => {
-    await api.createSignup(practiceId, user.email, user.name)
+    await api.createSignup(practiceId)
     await reload()
-  }, [user, reload])
+  }, [reload])
 
   const handleCancel = useCallback(async (practiceId) => {
-    await api.deleteSignup(practiceId, user.email)
+    await api.deleteSignup(practiceId)
     await reload()
-  }, [user, reload])
+  }, [reload])
 
   async function handleSync() {
     setSyncing(true)
@@ -84,36 +57,7 @@ export default function App() {
           </div>
         </header>
         <main className="login-page">
-          <div className="login-card">
-            <div className="login-icon"><WaveIcon size={40} /></div>
-            <h1>Welcome back</h1>
-            <p className="login-subtitle">Sign in to view and register for swim practices</p>
-            <form onSubmit={handleLogin} className="login-form">
-              <div className="field">
-                <label htmlFor="name">Your name</label>
-                <input
-                  id="name"
-                  type="text"
-                  placeholder="Alex Smith"
-                  value={loginForm.name}
-                  onChange={e => setLoginForm(f => ({ ...f, name: e.target.value }))}
-                  autoFocus
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="email">Email address</label>
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="alex@example.com"
-                  value={loginForm.email}
-                  onChange={e => setLoginForm(f => ({ ...f, email: e.target.value }))}
-                />
-              </div>
-              {loginError && <p className="login-error">{loginError}</p>}
-              <button type="submit" className="login-btn">Enter →</button>
-            </form>
-          </div>
+          <AuthFlow onAuth={setUser} />
         </main>
       </div>
     )
@@ -133,8 +77,8 @@ export default function App() {
             {syncing ? '⟳ Syncing…' : '⟳ Sync Calendar'}
           </button>
           <div className="user-pill" onClick={handleLogout} title="Click to sign out">
-            <span className="user-avatar">{user.name[0].toUpperCase()}</span>
-            <span className="user-name">{user.name}</span>
+            <span className="user-avatar">{(user.preferredName || user.firstName || '?')[0].toUpperCase()}</span>
+            <span className="user-name">{user.preferredName || user.firstName} {user.lastName}</span>
           </div>
         </div>
       </header>

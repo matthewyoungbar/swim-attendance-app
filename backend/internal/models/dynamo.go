@@ -2,7 +2,11 @@ package models
 
 import "time"
 
-const PracticeSK = "PRACTICE"
+const (
+	PracticeSK       = "PRACTICE"
+	UserSK           = "USER"
+	WebAuthnSessionSK = "SESSION"
+)
 
 type Practice struct {
 	PK          string    `json:"-" dynamodbav:"pk"`
@@ -26,4 +30,24 @@ type Signup struct {
 	SwimmerName  string    `json:"swimmerName" dynamodbav:"swimmerName"`
 	RegisteredAt time.Time `json:"registeredAt" dynamodbav:"registeredAt"`
 	Notes        string    `json:"notes,omitempty" dynamodbav:"notes,omitempty"`
+}
+
+type User struct {
+	PK              string    `json:"-" dynamodbav:"pk"`
+	SK              string    `json:"-" dynamodbav:"sk"`
+	Email           string    `json:"email" dynamodbav:"email"`
+	FirstName       string    `json:"firstName" dynamodbav:"firstName"`
+	LastName        string    `json:"lastName" dynamodbav:"lastName"`
+	PreferredName   string    `json:"preferredName,omitempty" dynamodbav:"preferredName,omitempty"`
+	Phone           string    `json:"phone,omitempty" dynamodbav:"phone,omitempty"`
+	WebAuthnID      []byte    `json:"-" dynamodbav:"webAuthnId"`
+	CredentialsJSON string    `json:"-" dynamodbav:"credentials"`
+	CreatedAt       time.Time `json:"createdAt" dynamodbav:"createdAt"`
+}
+
+type WebAuthnSession struct {
+	PK   string `dynamodbav:"pk"`
+	SK   string `dynamodbav:"sk"`
+	Data string `dynamodbav:"data"`
+	TTL  int64  `dynamodbav:"ttl"`
 }

@@ -58,6 +58,15 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 	if v := os.Getenv("GOOGLE_CALENDAR_ID"); v != "" {
 		lambdaEnv["GOOGLE_CALENDAR_ID"] = jsii.String(v)
 	}
+	if v := os.Getenv("JWT_SECRET"); v != "" {
+		lambdaEnv["JWT_SECRET"] = jsii.String(v)
+	}
+	if v := os.Getenv("WEBAUTHN_RPID"); v != "" {
+		lambdaEnv["WEBAUTHN_RPID"] = jsii.String(v)
+	}
+	if v := os.Getenv("WEBAUTHN_ORIGIN"); v != "" {
+		lambdaEnv["WEBAUTHN_ORIGIN"] = jsii.String(v)
+	}
 
 	fn := awslambda.NewFunction(stack, jsii.String("Api"), &awslambda.FunctionProps{
 		FunctionName: jsii.String("swim-signup-api" + sfx),

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 
-export function usePractices(email) {
+export function usePractices() {
   const [practices, setPractices] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -10,18 +10,15 @@ export function usePractices(email) {
     setLoading(true)
     setError(null)
     try {
-      const data = await api.getPractices(email)
-      // Sort by startTime ascending
-      const sorted = (data || []).sort(
-        (a, b) => new Date(a.startTime) - new Date(b.startTime)
-      )
+      const data = await api.getPractices()
+      const sorted = (data || []).sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
       setPractices(sorted)
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [email])
+  }, [])
 
   useEffect(() => { load() }, [load])
 

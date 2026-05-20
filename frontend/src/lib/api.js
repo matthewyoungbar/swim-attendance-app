@@ -1,12 +1,15 @@
-// lib/api.js — typed API client for the swim signup backend
+import { getToken } from './auth.js'
 
 const BASE_URL = import.meta.env.DEV ? '' : '/api'
 
-async function request(method, path, body, headers = {}) {
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json', ...headers },
+async function request(method, path, body, extraHeaders = {}) {
+  const token = getToken()
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...extraHeaders,
   }
+  const opts = { method, headers }
   if (body) opts.body = JSON.stringify(body)
 
   const res = await fetch(`${BASE_URL}${path}`, opts)
@@ -16,28 +19,28 @@ async function request(method, path, body, headers = {}) {
 }
 
 export const api = {
-  /** Fetch upcoming practices, optionally with signup status for an email */
   getPractices: (email) =>
     request('GET', `/practices${email ? `?email=${encodeURIComponent(email)}` : ''}`),
 
-  /** Admin: sync practices from Google Calendar */
   syncPractices: () => request('POST', '/practices/sync'),
 
-  /** Get all signups for a practice (admin) */
   getPracticeSignups: (practiceId) =>
     request('GET', `/practices/${practiceId}/signups`),
 
-  /** Sign up for a practice */
-  createSignup: (practiceId, swimmerEmail, swimmerName, notes = '') =>
-    request('POST', '/signups', { practiceId, swimmerEmail, swimmerName, notes }),
+  createSignup: (practiceId, notes = '') =>
+    request('POST', '/signups', { practiceId, notes }),
 
-  /** Cancel signup */
-  deleteSignup: (practiceId, swimmerEmail) =>
-    request('DELETE', `/signups/${practiceId}`, null, {
-      'X-Swimmer-Email': swimmerEmail,
-    }),
+  deleteSignup: (practiceId) =>
+    request('DELETE', `/signups/${practiceId}`),
 
-  /** Get all practices a swimmer is signed up for */
-  getMySignups: (email) =>
-    request('GET', `/my-signups?email=${encodeURIComponent(email)}`),
+  getMySignups: () =>
+    request('GET', '/my-signups'),
+
+  auth: {
+    check:            (email)  => request('GET', `/auth/check?email=${encodeURIComponent(email)}`),
+    registerBegin:    (data)   => request('POST', '/auth/register/begin', data),
+    registerComplete: (data)   => request('POST', '/auth/register/complete', data),
+    loginBegin:       (data)   => request('POST', '/auth/login/begin', data),
+    loginComplete:    (data)   => request('POST', '/auth/login/complete', data),
+  },
 }

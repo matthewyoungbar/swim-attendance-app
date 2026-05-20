@@ -1,10 +1,20 @@
 package models
 
 type SignupRequest struct {
-	PracticeID   string `json:"practiceId"`
-	SwimmerEmail string `json:"swimmerEmail"`
-	SwimmerName  string `json:"swimmerName"`
-	Notes        string `json:"notes,omitempty"`
+	PracticeID string `json:"practiceId"`
+	Notes      string `json:"notes,omitempty"`
+}
+
+type RegisterBeginRequest struct {
+	Email         string `json:"email"`
+	FirstName     string `json:"firstName"`
+	LastName      string `json:"lastName"`
+	PreferredName string `json:"preferredName,omitempty"`
+	Phone         string `json:"phone,omitempty"`
+}
+
+type LoginBeginRequest struct {
+	Email string `json:"email"`
 }
 
 type APIResponse struct {
