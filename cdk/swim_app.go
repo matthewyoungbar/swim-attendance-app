@@ -76,19 +76,19 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 
 	fnUrl := fn.AddFunctionUrl(&awslambda.FunctionUrlOptions{
 		AuthType: awslambda.FunctionUrlAuthType_NONE,
-		Cors: &awslambda.FunctionUrlCorsOptions{
-			AllowedOrigins: &[]*string{jsii.String("*")},
-			AllowedMethods: &[]awslambda.HttpMethod{
-				awslambda.HttpMethod_GET,
-				awslambda.HttpMethod_POST,
-				awslambda.HttpMethod_DELETE,
-			},
-			AllowedHeaders: &[]*string{
-				jsii.String("Content-Type"),
-				jsii.String("X-Swimmer-Email"),
-			},
-			MaxAge: awscdk.Duration_Seconds(jsii.Number(300)),
-		},
+	})
+
+	awslambda.NewCfnPermission(stack, jsii.String("AllowPublicUrl"), &awslambda.CfnPermissionProps{
+		Action:              jsii.String("lambda:InvokeFunctionUrl"),
+		FunctionName:        fn.FunctionArn(),
+		Principal:           jsii.String("*"),
+		FunctionUrlAuthType: jsii.String("NONE"),
+	})
+
+	awslambda.NewCfnPermission(stack, jsii.String("AllowPublicInvoke"), &awslambda.CfnPermissionProps{
+		Action:    jsii.String("lambda:InvokeFunction"),
+		FunctionName: fn.FunctionArn(),
+		Principal: jsii.String("*"),
 	})
 
 	// ─── S3 (UI) ─────────────────────────────────────────────────────────────
@@ -121,6 +121,9 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 	)
 
 	cdn := awscloudfront.NewDistribution(stack, jsii.String("CDN"), &awscloudfront.DistributionProps{
+		Comment:           jsii.String("swim-signup-" + env + " — swim practice signup app"),
+		PriceClass:        awscloudfront.PriceClass_PRICE_CLASS_100,
+		HttpVersion:       awscloudfront.HttpVersion_HTTP2_AND_3,
 		DefaultRootObject: jsii.String("index.html"),
 		DefaultBehavior: &awscloudfront.BehaviorOptions{
 			Origin:               awscloudfrontorigins.NewHttpOrigin(uiBucket.BucketWebsiteDomainName(), &awscloudfrontorigins.HttpOriginProps{
