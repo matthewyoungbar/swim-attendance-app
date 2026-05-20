@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ func (c *Client) FetchUpcomingPractices(ctx context.Context, days int) ([]models
 		return nil, fmt.Errorf("fetch ICS %s: HTTP %d", icsURL, resp.StatusCode)
 	}
 
-	all, themes, err := parseICS(resp.Body)
+	recurring, individual, themes, err := parseICS(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -58,14 +59,29 @@ func (c *Client) FetchUpcomingPractices(ctx context.Context, days int) ([]models
 	cutoff := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
 	now := time.Now().UTC()
 
-	var upcoming []models.Practice
-	for _, p := range all {
+	byStart := make(map[time.Time]models.Practice)
+
+	// Recurring expansions first (lower priority).
+	for _, p := range recurring {
 		if !p.StartTime.After(cutoff) && p.EndTime.After(now) {
-			if theme, ok := themes[p.StartTime.Format("2006-01-02")]; ok {
-				p.Theme = theme
+			if _, exists := byStart[p.StartTime]; !exists {
+				byStart[p.StartTime] = p
 			}
-			upcoming = append(upcoming, p)
 		}
+	}
+	// Individual events override recurring ones for the same time slot.
+	for _, p := range individual {
+		if !p.StartTime.After(cutoff) && p.EndTime.After(now) {
+			byStart[p.StartTime] = p
+		}
+	}
+
+	upcoming := make([]models.Practice, 0, len(byStart))
+	for _, p := range byStart {
+		if theme, ok := themes[p.StartTime.Format("2006-01-02")]; ok {
+			p.Theme = theme
+		}
+		upcoming = append(upcoming, p)
 	}
 	return upcoming, nil
 }
@@ -77,7 +93,7 @@ type icsProp struct {
 	params map[string]string
 }
 
-func parseICS(r io.Reader) ([]models.Practice, map[string]string, error) {
+func parseICS(r io.Reader) (recurring []models.Practice, individual []models.Practice, themes map[string]string, err error) {
 	scanner := bufio.NewScanner(r)
 
 	// Unfold continuation lines (RFC 5545 §3.1)
@@ -93,11 +109,19 @@ func parseICS(r io.Reader) ([]models.Practice, map[string]string, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, nil, fmt.Errorf("read ICS: %w", err)
+		return nil, nil, nil, fmt.Errorf("read ICS: %w", err)
 	}
 
-	var practices []models.Practice
-	themes := make(map[string]string) // "2006-01-02" → theme title
+	type allDayEv struct {
+		date  time.Time
+		title string
+		rrule string
+	}
+
+	// Collect all VEVENT prop maps in a first pass so we can build the
+	// RECURRENCE-ID exception map before expanding any recurring events.
+	var allVEvents []map[string]icsProp
+	var allDayEvs []allDayEv
 	var inEvent bool
 	var props map[string]icsProp
 
@@ -108,22 +132,15 @@ func parseICS(r io.Reader) ([]models.Practice, map[string]string, error) {
 			props = make(map[string]icsProp)
 		case "END:VEVENT":
 			if inEvent {
+				allVEvents = append(allVEvents, props)
 				dtstart := props["DTSTART"]
 				if len(dtstart.value) == 8 {
-					// All-day event: treat as theme for that date
-					if t, err := time.Parse("20060102", dtstart.value); err == nil {
-						title := props["SUMMARY"].value
+					if t, parseErr := time.Parse("20060102", dtstart.value); parseErr == nil {
+						ev := allDayEv{date: t, title: props["SUMMARY"].value}
 						if rrule, ok := props["RRULE"]; ok {
-							expandThemeDates(t, rrule.value, title, themes)
-						} else {
-							themes[t.Format("2006-01-02")] = title
+							ev.rrule = rrule.value
 						}
-					}
-				} else if p, err := eventToPractice(props); err == nil {
-					if rrule, ok := props["RRULE"]; ok {
-						practices = append(practices, expandRRULE(p, rrule.value)...)
-					} else {
-						practices = append(practices, p)
+						allDayEvs = append(allDayEvs, ev)
 					}
 				}
 				inEvent = false
@@ -139,7 +156,63 @@ func parseICS(r io.Reader) ([]models.Practice, map[string]string, error) {
 		}
 	}
 
-	return practices, themes, nil
+	// Build RECURRENCE-ID exception map: uid → set of original occurrence times.
+	// When expanding a recurring event, skip any occurrence at these times because
+	// a specific exception VEVENT overrides it (possibly at a different time).
+	exceptions := make(map[string]map[time.Time]bool)
+	for _, ev := range allVEvents {
+		if rid, ok := ev["RECURRENCE-ID"]; ok {
+			uid := ev["UID"].value
+			if t, parseErr := parseICSTime(rid); parseErr == nil {
+				if exceptions[uid] == nil {
+					exceptions[uid] = make(map[time.Time]bool)
+				}
+				exceptions[uid][t] = true
+			}
+		}
+	}
+
+	// Second pass: process timed VEVENTs into recurring / individual slices.
+	var recurringPractices []models.Practice
+	var individualPractices []models.Practice
+	for _, ev := range allVEvents {
+		dtstart := ev["DTSTART"]
+		if len(dtstart.value) == 8 {
+			continue // all-day events already collected above
+		}
+		p, parseErr := eventToPractice(ev)
+		if parseErr != nil {
+			continue
+		}
+		if rrule, ok := ev["RRULE"]; ok {
+			uid := ev["UID"].value
+			recurringPractices = append(recurringPractices, expandRRULE(p, rrule.value, exceptions[uid])...)
+		} else {
+			individualPractices = append(individualPractices, p)
+		}
+	}
+
+	// Sort recurring events by start date so the most recently started series
+	// overwrites older ones deterministically (ICS order varies per request).
+	sort.Slice(allDayEvs, func(i, j int) bool {
+		return allDayEvs[i].date.Before(allDayEvs[j].date)
+	})
+
+	// Recurring events first (general defaults, earliest→latest so newest wins),
+	// then non-recurring individual events override specific dates.
+	themes = make(map[string]string)
+	for _, ev := range allDayEvs {
+		if ev.rrule != "" {
+			expandThemeDates(ev.date, ev.rrule, ev.title, themes)
+		}
+	}
+	for _, ev := range allDayEvs {
+		if ev.rrule == "" {
+			themes[ev.date.Format("2006-01-02")] = ev.title
+		}
+	}
+
+	return recurringPractices, individualPractices, themes, nil
 }
 
 func parseLine(line string) (string, icsProp) {
@@ -211,6 +284,7 @@ func eventToPractice(props map[string]icsProp) (models.Practice, error) {
 var weekdayAbbrev = [7]string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
 
 // expandThemeDates populates the themes map for each date a recurring all-day event falls on.
+// It fast-forwards to today before iterating so past-starting series don't run thousands of steps.
 func expandThemeDates(start time.Time, rrule, title string, themes map[string]string) {
 	params := map[string]string{}
 	for _, part := range strings.Split(rrule, ";") {
@@ -223,6 +297,13 @@ func expandThemeDates(start time.Time, rrule, title string, themes map[string]st
 	if freq != "DAILY" && freq != "WEEKLY" {
 		themes[start.Format("2006-01-02")] = title
 		return
+	}
+
+	interval := 1
+	if iv := params["INTERVAL"]; iv != "" {
+		if n, err := strconv.Atoi(iv); err == nil && n > 0 {
+			interval = n
+		}
 	}
 
 	byday := map[string]bool{}
@@ -249,8 +330,10 @@ func expandThemeDates(start time.Time, rrule, title string, themes map[string]st
 		count, _ = strconv.Atoi(c)
 	}
 
-	cur := start
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	cur := fastForwardDate(start, freq, interval, byday, today)
 	n := 0
+
 	for {
 		if count > 0 && n >= count {
 			break
@@ -263,10 +346,10 @@ func expandThemeDates(start time.Time, rrule, title string, themes map[string]st
 
 		switch freq {
 		case "DAILY":
-			cur = cur.AddDate(0, 0, 1)
+			cur = cur.AddDate(0, 0, interval)
 		case "WEEKLY":
 			if len(byday) == 0 {
-				cur = cur.AddDate(0, 0, 7)
+				cur = cur.AddDate(0, 0, 7*interval)
 			} else {
 				for i := 1; i <= 7; i++ {
 					next := cur.AddDate(0, 0, i)
@@ -280,9 +363,36 @@ func expandThemeDates(start time.Time, rrule, title string, themes map[string]st
 	}
 }
 
+// fastForwardDate returns the first occurrence of a recurring date sequence on or after horizon.
+func fastForwardDate(start time.Time, freq string, interval int, byday map[string]bool, horizon time.Time) time.Time {
+	if !start.Before(horizon) {
+		return start
+	}
+	switch freq {
+	case "DAILY":
+		// Use ceiling division to find the first occurrence on or after horizon,
+		// respecting the interval so each series stays in its correct cycle position.
+		diff := int(horizon.Sub(start).Hours() / 24)
+		n := (diff + interval - 1) / interval
+		return start.AddDate(0, 0, n*interval)
+	case "WEEKLY":
+		valid := byday
+		if len(valid) == 0 {
+			valid = map[string]bool{weekdayAbbrev[start.Weekday()]: true}
+		}
+		for i := 0; i <= 7; i++ {
+			candidate := horizon.AddDate(0, 0, i)
+			if valid[weekdayAbbrev[candidate.Weekday()]] {
+				return candidate
+			}
+		}
+	}
+	return horizon
+}
+
 // expandRRULE generates individual Practice instances from a recurring event.
 // Handles FREQ=DAILY and FREQ=WEEKLY (with BYDAY), plus UNTIL and COUNT.
-func expandRRULE(base models.Practice, rrule string) []models.Practice {
+func expandRRULE(base models.Practice, rrule string, exceptions map[time.Time]bool) []models.Practice {
 	params := map[string]string{}
 	for _, part := range strings.Split(rrule, ";") {
 		if k, v, ok := strings.Cut(part, "="); ok {
@@ -332,12 +442,14 @@ func expandRRULE(base models.Practice, rrule string) []models.Practice {
 			break
 		}
 
-		p := base
-		p.StartTime = cur
-		p.EndTime = cur.Add(duration)
-		p.ID = fmt.Sprintf("%s_%s", base.ID, cur.UTC().Format("20060102T150405"))
-		p.TTL = p.EndTime.Add(7 * 24 * time.Hour).Unix()
-		out = append(out, p)
+		if !exceptions[cur] {
+			p := base
+			p.StartTime = cur
+			p.EndTime = cur.Add(duration)
+			p.ID = fmt.Sprintf("%s_%s", base.ID, cur.UTC().Format("20060102T150405"))
+			p.TTL = p.EndTime.Add(7 * 24 * time.Hour).Unix()
+			out = append(out, p)
+		}
 		n++
 
 		// Advance to next occurrence

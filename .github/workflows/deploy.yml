@@ -93,7 +93,9 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           WEBAUTHN_RPID: ${{ secrets.WEBAUTHN_RPID }}
           WEBAUTHN_ORIGIN: ${{ secrets.WEBAUTHN_ORIGIN }}
-        run: cdk deploy -c env=dev --require-approval never --outputs-file outputs.json
+        run: |
+          cdk deploy -c env=dev --require-approval never --outputs-file outputs.json \
+            2> >(grep -v "current credentials could not be used to assume" >&2)
 
       - uses: actions/download-artifact@v8
         with:
