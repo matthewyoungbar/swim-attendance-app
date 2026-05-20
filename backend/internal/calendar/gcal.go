@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -55,6 +56,8 @@ func (c *Client) FetchUpcomingPractices(ctx context.Context, days int) ([]models
 	if err != nil {
 		return nil, err
 	}
+
+	log.Printf("ICS parse: %d recurring expansions, %d individual events", len(recurring), len(individual))
 
 	cutoff := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
 	now := time.Now().UTC()
@@ -132,6 +135,10 @@ func parseICS(r io.Reader) (recurring []models.Practice, individual []models.Pra
 			props = make(map[string]icsProp)
 		case "END:VEVENT":
 			if inEvent {
+				if props["STATUS"].value == "CANCELLED" {
+					inEvent = false
+					continue
+				}
 				allVEvents = append(allVEvents, props)
 				dtstart := props["DTSTART"]
 				if len(dtstart.value) == 8 {
@@ -156,18 +163,32 @@ func parseICS(r io.Reader) (recurring []models.Practice, individual []models.Pra
 		}
 	}
 
-	// Build RECURRENCE-ID exception map: uid → set of original occurrence times.
-	// When expanding a recurring event, skip any occurrence at these times because
-	// a specific exception VEVENT overrides it (possibly at a different time).
+	// Build exception map: uid → set of original occurrence times to skip.
+	// Sources: RECURRENCE-ID (overridden by a specific VEVENT) and EXDATE (explicitly excluded).
 	exceptions := make(map[string]map[time.Time]bool)
 	for _, ev := range allVEvents {
+		uid := ev["UID"].value
 		if rid, ok := ev["RECURRENCE-ID"]; ok {
-			uid := ev["UID"].value
 			if t, parseErr := parseICSTime(rid); parseErr == nil {
 				if exceptions[uid] == nil {
 					exceptions[uid] = make(map[time.Time]bool)
 				}
 				exceptions[uid][t] = true
+			}
+		}
+		if exdate, ok := ev["EXDATE"]; ok {
+			for _, raw := range strings.Split(exdate.value, ",") {
+				raw = strings.TrimSpace(raw)
+				if raw == "" {
+					continue
+				}
+				prop := icsProp{value: raw, params: exdate.params}
+				if t, parseErr := parseICSTime(prop); parseErr == nil {
+					if exceptions[uid] == nil {
+						exceptions[uid] = make(map[time.Time]bool)
+					}
+					exceptions[uid][t] = true
+				}
 			}
 		}
 	}
@@ -186,7 +207,8 @@ func parseICS(r io.Reader) (recurring []models.Practice, individual []models.Pra
 		}
 		if rrule, ok := ev["RRULE"]; ok {
 			uid := ev["UID"].value
-			recurringPractices = append(recurringPractices, expandRRULE(p, rrule.value, exceptions[uid])...)
+			loc := locationFromProp(ev["DTSTART"])
+			recurringPractices = append(recurringPractices, expandRRULE(p, rrule.value, exceptions[uid], loc)...)
 		} else {
 			individualPractices = append(individualPractices, p)
 		}
@@ -390,9 +412,19 @@ func fastForwardDate(start time.Time, freq string, interval int, byday map[strin
 	return horizon
 }
 
+func locationFromProp(prop icsProp) *time.Location {
+	if tzid := prop.params["TZID"]; tzid != "" {
+		if loc, err := time.LoadLocation(tzid); err == nil {
+			return loc
+		}
+	}
+	return time.UTC
+}
+
 // expandRRULE generates individual Practice instances from a recurring event.
 // Handles FREQ=DAILY and FREQ=WEEKLY (with BYDAY), plus UNTIL and COUNT.
-func expandRRULE(base models.Practice, rrule string, exceptions map[time.Time]bool) []models.Practice {
+// loc should be the timezone from DTSTART so that wall-clock time is preserved across DST changes.
+func expandRRULE(base models.Practice, rrule string, exceptions map[time.Time]bool, loc *time.Location) []models.Practice {
 	params := map[string]string{}
 	for _, part := range strings.Split(rrule, ";") {
 		if k, v, ok := strings.Cut(part, "="); ok {
@@ -431,7 +463,8 @@ func expandRRULE(base models.Practice, rrule string, exceptions map[time.Time]bo
 
 	duration := base.EndTime.Sub(base.StartTime)
 	var out []models.Practice
-	cur := base.StartTime
+	// Use the local timezone so AddDate preserves wall-clock time across DST changes.
+	cur := base.StartTime.In(loc)
 	n := 0
 
 	for {
@@ -442,11 +475,12 @@ func expandRRULE(base models.Practice, rrule string, exceptions map[time.Time]bo
 			break
 		}
 
-		if !exceptions[cur] {
+		curUTC := cur.UTC()
+		if !exceptions[curUTC] {
 			p := base
-			p.StartTime = cur
-			p.EndTime = cur.Add(duration)
-			p.ID = fmt.Sprintf("%s_%s", base.ID, cur.UTC().Format("20060102T150405"))
+			p.StartTime = curUTC
+			p.EndTime = curUTC.Add(duration)
+			p.ID = fmt.Sprintf("%s_%s", base.ID, curUTC.Format("20060102T150405"))
 			p.TTL = p.EndTime.Add(7 * 24 * time.Hour).Unix()
 			out = append(out, p)
 		}
