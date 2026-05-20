@@ -89,10 +89,10 @@ jobs:
         working-directory: cdk
         env:
           GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
-          BUCKET_PREFIX: ${{ vars.BUCKET_PREFIX }}
+          BUCKET_PREFIX: ${{ secrets.BUCKET_PREFIX }}
         run: cdk deploy -c env=dev --require-approval never --outputs-file outputs.json
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-dist
           path: frontend/dist/
@@ -100,5 +100,5 @@ jobs:
       - name: Deploy frontend to S3
         working-directory: cdk
         run: |
-          BUCKET=$(jq -r '."SwimStack-prod".UiBucketName' outputs.json)
+          BUCKET=$(jq -r '."SwimStack-dev".UiBucketName' outputs.json)
           aws s3 sync ../frontend/dist/ s3://$BUCKET --delete
