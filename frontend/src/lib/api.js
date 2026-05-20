@@ -1,6 +1,6 @@
 // lib/api.js — typed API client for the swim signup backend
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? ''
+const BASE_URL = import.meta.env.DEV ? '' : '/api'
 
 async function request(method, path, body, headers = {}) {
   const opts = {

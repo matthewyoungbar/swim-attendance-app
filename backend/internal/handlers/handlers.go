@@ -35,7 +35,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := strings.TrimSuffix(r.URL.Path, "/")
+	path := strings.TrimPrefix(strings.TrimSuffix(r.URL.Path, "/"), "/api")
 	log.Printf("%s %s", r.Method, path)
 
 	switch {

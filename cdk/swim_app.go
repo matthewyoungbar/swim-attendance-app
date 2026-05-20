@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awscloudfront"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awscloudfrontorigins"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsdynamodb"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
@@ -106,6 +108,47 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 		RemovalPolicy:        removalPolicy(env),
 	})
 
+	// ─── CloudFront ───────────────────────────────────────────────────────────
+
+	// Extract domain from the Lambda Function URL (https://xxxx.lambda-url.region.on.aws/)
+	lambdaDomain := awscdk.Fn_Select(
+		jsii.Number(0),
+		awscdk.Fn_Split(
+			jsii.String("/"),
+			awscdk.Fn_Select(jsii.Number(1), awscdk.Fn_Split(jsii.String("//"), fnUrl.Url(), jsii.Number(2))),
+			jsii.Number(2),
+		),
+	)
+
+	cdn := awscloudfront.NewDistribution(stack, jsii.String("CDN"), &awscloudfront.DistributionProps{
+		DefaultRootObject: jsii.String("index.html"),
+		DefaultBehavior: &awscloudfront.BehaviorOptions{
+			Origin:               awscloudfrontorigins.NewHttpOrigin(uiBucket.BucketWebsiteDomainName(), &awscloudfrontorigins.HttpOriginProps{
+				ProtocolPolicy: awscloudfront.OriginProtocolPolicy_HTTP_ONLY,
+			}),
+			ViewerProtocolPolicy: awscloudfront.ViewerProtocolPolicy_REDIRECT_TO_HTTPS,
+		},
+		AdditionalBehaviors: &map[string]*awscloudfront.BehaviorOptions{
+			"/api/*": {
+				Origin: awscloudfrontorigins.NewHttpOrigin(lambdaDomain, &awscloudfrontorigins.HttpOriginProps{
+					ProtocolPolicy: awscloudfront.OriginProtocolPolicy_HTTPS_ONLY,
+				}),
+				ViewerProtocolPolicy: awscloudfront.ViewerProtocolPolicy_HTTPS_ONLY,
+				AllowedMethods:       awscloudfront.AllowedMethods_ALLOW_ALL(),
+				CachePolicy:          awscloudfront.CachePolicy_CACHING_DISABLED(),
+				OriginRequestPolicy:  awscloudfront.OriginRequestPolicy_ALL_VIEWER_EXCEPT_HOST_HEADER(),
+			},
+		},
+		ErrorResponses: &[]*awscloudfront.ErrorResponse{
+			{
+				HttpStatus:         jsii.Number(404),
+				ResponseHttpStatus: jsii.Number(200),
+				ResponsePagePath:   jsii.String("/index.html"),
+				Ttl:                awscdk.Duration_Seconds(jsii.Number(0)),
+			},
+		},
+	})
+
 	// ─── Outputs ─────────────────────────────────────────────────────────────
 
 	awscdk.NewCfnOutput(stack, jsii.String("ApiUrl"), &awscdk.CfnOutputProps{
@@ -119,6 +162,10 @@ func NewSwimStack(scope constructs.Construct, id string, props *SwimStackProps) 
 	awscdk.NewCfnOutput(stack, jsii.String("UiUrl"), &awscdk.CfnOutputProps{
 		Value:       uiBucket.BucketWebsiteUrl(),
 		Description: jsii.String("Frontend URL"),
+	})
+	awscdk.NewCfnOutput(stack, jsii.String("CdnUrl"), &awscdk.CfnOutputProps{
+		Value:       cdn.DistributionDomainName(),
+		Description: jsii.String("CloudFront domain — access the app at https://{this}"),
 	})
 
 	return stack
