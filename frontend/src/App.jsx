@@ -31,6 +31,11 @@ export default function App() {
     })
   }, [])
 
+  const handleAuth = useCallback((newUser) => {
+    setUser(newUser)
+    reload()
+  }, [reload])
+
   function handleLogout() {
     setUser(null)
     clearAuth()
@@ -75,7 +80,7 @@ export default function App() {
           </div>
         </header>
         <main className="login-page">
-          <AuthFlow onAuth={setUser} />
+          <AuthFlow onAuth={handleAuth} />
         </main>
       </div>
     )
