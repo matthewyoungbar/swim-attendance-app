@@ -46,6 +46,11 @@ export const api = {
   updateUserRoles: (email, isAdmin, isCoach, isActive) =>
     request('PUT', `/users/${encodeURIComponent(email)}/roles`, { isAdmin, isCoach, isActive }),
 
+  listPasskeys: () => request('GET', '/passkeys'),
+  addPasskeyBegin: () => request('POST', '/passkeys/add/begin'),
+  addPasskeyComplete: (data) => request('POST', '/passkeys/add/complete', data),
+  deletePasskey: (credId) => request('DELETE', `/passkeys/${credId}`),
+
   auth: {
     check:            (email)  => request('GET', `/auth/check?email=${encodeURIComponent(email)}`),
     me:               ()       => request('GET', '/auth/me'),

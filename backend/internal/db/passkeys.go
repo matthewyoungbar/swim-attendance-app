@@ -61,6 +61,17 @@ func (c *Client) GetPasskeys(ctx context.Context, webAuthnID []byte) ([]models.P
 	return passkeys, nil
 }
 
+func (c *Client) DeletePasskey(ctx context.Context, webAuthnID []byte, credID string) error {
+	_, err := c.ddb.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(c.table),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "PASSKEY#" + b64key(webAuthnID)},
+			"sk": &types.AttributeValueMemberS{Value: "PASSKEY#" + credID},
+		},
+	})
+	return err
+}
+
 func (c *Client) UpdatePasskey(ctx context.Context, webAuthnID []byte, cred walib.Credential) error {
 	credJSON, err := json.Marshal(cred)
 	if err != nil {

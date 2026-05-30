@@ -1,18 +1,16 @@
 import React, { useState, useCallback, useEffect } from 'react'
+import { Routes, Route, useNavigate, Navigate, Link } from 'react-router'
 import PracticeCard from './components/PracticeCard'
 import AuthFlow from './components/AuthFlow'
 import AdminPage from './components/AdminPage'
+import AccountPage from './components/AccountPage'
 import { usePractices } from './hooks/usePractices'
 import { api } from './lib/api'
 import { getStoredUser, storeAuth, getToken, clearAuth } from './lib/auth'
 
 export default function App() {
   const [user, setUser] = useState(getStoredUser)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState(null)
-  const [tab, setTab] = useState('upcoming') // 'upcoming' | 'mine' | 'admin'
-
-  const { practices, loading, error, reload } = usePractices()
+  const navigate = useNavigate()
 
   // Refresh user profile from the server on every load so role changes
   // (e.g. isAdmin set in DynamoDB) are picked up without requiring logout.
@@ -22,8 +20,6 @@ export default function App() {
       setUser(freshUser)
       storeAuth(getToken(), freshUser)
     }).catch(err => {
-      // Only force logout when the token is genuinely rejected (401).
-      // Network errors, 500s, etc. leave the cached user intact.
       if (err.status === 401) {
         clearAuth()
         setUser(null)
@@ -33,48 +29,19 @@ export default function App() {
 
   const handleAuth = useCallback((newUser) => {
     setUser(newUser)
-    reload()
-  }, [reload])
+  }, [])
 
   function handleLogout() {
     setUser(null)
     clearAuth()
+    navigate('/')
   }
-
-  const handleSignup = useCallback(async (practiceId) => {
-    await api.createSignup(practiceId)
-    await reload()
-  }, [reload])
-
-  const handleCancel = useCallback(async (practiceId) => {
-    await api.deleteSignup(practiceId)
-    await reload()
-  }, [reload])
-
-  async function handleSync() {
-    setSyncing(true)
-    setSyncMsg(null)
-    try {
-      const result = await api.syncPractices()
-      setSyncMsg(`Synced ${result.synced} practices from calendar.`)
-      await reload()
-    } catch (e) {
-      setSyncMsg(`Sync failed: ${e.message}`)
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  const myPractices = practices.filter(p => p.isSignedUp)
-  const displayedPractices = tab === 'mine' ? myPractices : practices
-
-  // ─── Not logged in ────────────────────────────────────────────────────────
 
   if (!user) {
     return (
       <div className="app">
         <header className="app-header">
-          <div className="header-logo">
+          <div className="header-logo" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
             <WaveIcon />
             <span>SwimSignup</span>
           </div>
@@ -86,109 +53,149 @@ export default function App() {
     )
   }
 
-  // ─── Logged in ────────────────────────────────────────────────────────────
-
   return (
     <div className="app">
       <header className="app-header">
-        <div className="header-logo">
+        <Link to="/" className="header-logo">
           <WaveIcon />
           <span>SwimSignup</span>
-        </div>
+        </Link>
         <div className="header-right">
-          <button className="sync-btn" onClick={handleSync} disabled={syncing}>
-            {syncing ? '⟳ Syncing…' : '⟳ Sync Calendar'}
-          </button>
-          <div className="user-pill" onClick={handleLogout} title="Click to sign out">
+          <SyncButton />
+          <div className="user-pill" onClick={() => navigate('/account')} title="Manage your account">
             <span className="user-avatar">{(user.preferredName || user.firstName || '?')[0].toUpperCase()}</span>
             <span className="user-name">{user.preferredName || user.firstName} {user.lastName}</span>
           </div>
         </div>
       </header>
 
+      <main className="main-content">
+        <Routes>
+          <Route path="/account" element={<AccountPage user={user} onLogout={handleLogout} />} />
+          <Route path="*" element={<PracticesView user={user} />} />
+        </Routes>
+      </main>
+    </div>
+  )
+}
+
+function SyncButton() {
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState(null)
+
+  async function handleSync() {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const result = await api.syncPractices()
+      setSyncMsg(`Synced ${result.synced} practices from calendar.`)
+    } catch (e) {
+      setSyncMsg(`Sync failed: ${e.message}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <>
+      <button className="sync-btn" onClick={handleSync} disabled={syncing}>
+        {syncing ? '⟳ Syncing…' : '⟳ Sync Calendar'}
+      </button>
       {syncMsg && (
-        <div className={`sync-banner ${syncMsg.startsWith('Sync failed') ? 'error' : 'success'}`}>
+        <div className={`sync-banner ${syncMsg.startsWith('Sync failed') ? 'error' : 'success'}`}
+          style={{ position: 'fixed', top: 60, left: 0, right: 0, zIndex: 99 }}>
           {syncMsg}
           <button onClick={() => setSyncMsg(null)}>✕</button>
         </div>
       )}
+    </>
+  )
+}
 
-      <main className="main-content">
-        <div className="tabs">
-          <button
-            className={`tab ${tab === 'upcoming' ? 'active' : ''}`}
-            onClick={() => setTab('upcoming')}
-          >
-            All Practices
-            <span className="tab-count">{practices.length}</span>
+function PracticesView({ user }) {
+  const [tab, setTab] = useState('upcoming')
+  const { practices, loading, error, reload } = usePractices()
+
+  const handleSignup = useCallback(async (practiceId) => {
+    await api.createSignup(practiceId)
+    await reload()
+  }, [reload])
+
+  const handleCancel = useCallback(async (practiceId) => {
+    await api.deleteSignup(practiceId)
+    await reload()
+  }, [reload])
+
+  const myPractices = practices.filter(p => p.isSignedUp)
+  const displayedPractices = tab === 'mine' ? myPractices : practices
+
+  return (
+    <>
+      <div className="tabs">
+        <button className={`tab ${tab === 'upcoming' ? 'active' : ''}`} onClick={() => setTab('upcoming')}>
+          All Practices
+          <span className="tab-count">{practices.length}</span>
+        </button>
+        <button className={`tab ${tab === 'mine' ? 'active' : ''}`} onClick={() => setTab('mine')}>
+          My Signups
+          <span className="tab-count">{myPractices.length}</span>
+        </button>
+        {user.isAdmin && (
+          <button className={`tab ${tab === 'admin' ? 'active' : ''}`} onClick={() => setTab('admin')}>
+            Admin
           </button>
-          <button
-            className={`tab ${tab === 'mine' ? 'active' : ''}`}
-            onClick={() => setTab('mine')}
-          >
-            My Signups
-            <span className="tab-count">{myPractices.length}</span>
-          </button>
-          {user.isAdmin && (
-            <button
-              className={`tab ${tab === 'admin' ? 'active' : ''}`}
-              onClick={() => setTab('admin')}
-            >
-              Admin
-            </button>
-          )}
-        </div>
-
-        {tab === 'admin' ? (
-          <AdminPage currentUserEmail={user.email} />
-        ) : (
-          <>
-            {!user.isActive && (
-              <div className="sync-banner error" style={{ justifyContent: 'center' }}>
-                Your account is not currently active. Contact an admin to sign up for practices.
-              </div>
-            )}
-
-            {loading && (
-              <div className="loading-state">
-                <div className="loading-wave">
-                  {[0,1,2,3,4].map(i => <span key={i} style={{ animationDelay: `${i * 0.1}s` }} />)}
-                </div>
-                <p>Loading practices…</p>
-              </div>
-            )}
-
-            {error && !loading && (
-              <div className="error-state">
-                <p>⚠ {error}</p>
-                <button onClick={reload}>Retry</button>
-              </div>
-            )}
-
-            {!loading && !error && displayedPractices.length === 0 && (
-              <div className="empty-state">
-                {tab === 'mine'
-                  ? <p>You haven't signed up for any practices yet.</p>
-                  : <p>No upcoming practices. Try syncing the calendar.</p>
-                }
-              </div>
-            )}
-
-            <div className="practice-list">
-              {displayedPractices.map(p => (
-                <PracticeCard
-                  key={p.id}
-                  practice={p}
-                  onSignup={handleSignup}
-                  onCancel={handleCancel}
-                  disabled={!user.isActive}
-                />
-              ))}
-            </div>
-          </>
         )}
-      </main>
-    </div>
+      </div>
+
+      {tab === 'admin' ? (
+        <AdminPage currentUserEmail={user.email} />
+      ) : (
+        <>
+          {!user.isActive && (
+            <div className="sync-banner error" style={{ justifyContent: 'center' }}>
+              Your account is not currently active. Contact an admin to sign up for practices.
+            </div>
+          )}
+
+          {loading && (
+            <div className="loading-state">
+              <div className="loading-wave">
+                {[0,1,2,3,4].map(i => <span key={i} style={{ animationDelay: `${i * 0.1}s` }} />)}
+              </div>
+              <p>Loading practices…</p>
+            </div>
+          )}
+
+          {error && !loading && (
+            <div className="error-state">
+              <p>⚠ {error}</p>
+              <button onClick={reload}>Retry</button>
+            </div>
+          )}
+
+          {!loading && !error && displayedPractices.length === 0 && (
+            <div className="empty-state">
+              {tab === 'mine'
+                ? <p>You haven't signed up for any practices yet.</p>
+                : <p>No upcoming practices. Try syncing the calendar.</p>
+              }
+            </div>
+          )}
+
+          <div className="practice-list">
+            {displayedPractices.map(p => (
+              <PracticeCard
+                key={p.id}
+                practice={p}
+                onSignup={handleSignup}
+                onCancel={handleCancel}
+                disabled={!user.isActive}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </>
   )
 }
 

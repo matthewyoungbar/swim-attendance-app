@@ -52,6 +52,7 @@ body {
 .header-logo {
   display: flex; align-items: center; gap: 10px;
   font-size: 1.1rem; font-weight: 600; color: var(--pool);
+  text-decoration: none; cursor: pointer;
 }
 .header-logo svg { stroke: var(--pool); }
 
@@ -472,3 +473,133 @@ body {
   .capacity-bar { display: none; }
   .signup-btn { width: auto; }
 }
+
+/* ─── Account Page ───────────────────────────────────────────────────────── */
+.account-page {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.account-section {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  box-shadow: var(--shadow);
+}
+
+.account-section-title {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-bottom: 16px;
+}
+
+.account-info-grid {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px 16px;
+  align-items: baseline;
+}
+.account-info-label { font-size: .82rem; color: var(--text-soft); }
+.account-info-value { font-size: .92rem; color: var(--text); }
+
+.passkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.passkey-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.passkey-row svg { color: var(--pool); flex-shrink: 0; }
+
+.passkey-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.passkey-label { font-size: .88rem; font-weight: 500; color: var(--text); }
+.passkey-date  { font-size: .76rem; color: var(--text-soft); }
+
+.passkey-delete {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: .78rem;
+  font-family: inherit;
+  color: var(--danger);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.passkey-delete:hover:not(:disabled) { background: #fde8ea; border-color: var(--danger); }
+.passkey-delete:disabled { opacity: .3; cursor: not-allowed; }
+
+.passkey-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .8rem;
+  color: var(--text-mid);
+  white-space: nowrap;
+}
+.passkey-confirm-yes {
+  background: var(--danger); color: #fff;
+  border: none; border-radius: 6px;
+  padding: 4px 10px; font-size: .78rem; font-family: inherit; cursor: pointer;
+}
+.passkey-confirm-no {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 10px; font-size: .78rem; font-family: inherit; cursor: pointer; color: var(--text-mid);
+}
+
+.account-add-btn {
+  width: 100%;
+  padding: 10px;
+  background: none;
+  border: 1.5px dashed var(--pool-mid);
+  border-radius: 10px;
+  color: var(--pool);
+  font-size: .88rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+}
+.account-add-btn:hover:not(:disabled) { background: var(--pool-pale); }
+.account-add-btn:disabled { opacity: .6; cursor: wait; }
+
+.account-signout {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 20px;
+  font-size: .88rem;
+  font-family: inherit;
+  color: var(--text-mid);
+  cursor: pointer;
+  transition: all .15s;
+  align-self: flex-start;
+}
+.account-signout:hover { border-color: var(--danger); color: var(--danger); }
+
+.account-back {
+  background: none; border: none; padding: 0;
+  font-size: .85rem; font-family: inherit;
+  color: var(--pool); cursor: pointer;
+  margin-bottom: 20px; display: inline-block;
+}
+.account-back:hover { text-decoration: underline; }
+
+.account-muted { color: var(--text-soft); font-size: .88rem; margin-bottom: 14px; }
+.account-error { color: var(--danger); font-size: .85rem; margin: 8px 0; }

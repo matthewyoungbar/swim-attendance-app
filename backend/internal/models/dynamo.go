@@ -58,6 +58,9 @@ type Passkey struct {
 	UserEmail      string    `json:"-" dynamodbav:"userEmail"`
 	CredentialJSON string    `json:"-" dynamodbav:"credentialJSON"`
 	CreatedAt      time.Time `json:"createdAt" dynamodbav:"createdAt"`
+	// Populated after load from CredentialJSON; not stored.
+	ID        string   `json:"id,omitempty" dynamodbav:"-"`
+	Transport []string `json:"transport,omitempty" dynamodbav:"-"`
 }
 
 type WebAuthnSession struct {

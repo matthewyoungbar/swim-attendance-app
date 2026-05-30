@@ -124,6 +124,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.deleteSignup(w, r, practiceID)
 	case r.Method == http.MethodGet && path == "/my-signups":
 		h.mySignups(w, r)
+	case r.Method == http.MethodGet && path == "/passkeys":
+		h.listPasskeys(w, r)
+	case r.Method == http.MethodPost && path == "/passkeys/add/begin":
+		h.addPasskeyBegin(w, r)
+	case r.Method == http.MethodPost && path == "/passkeys/add/complete":
+		h.addPasskeyComplete(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/passkeys/"):
+		h.deletePasskey(w, r, strings.TrimPrefix(path, "/passkeys/"))
 	case r.Method == http.MethodGet && path == "/users":
 		h.listUsers(w, r)
 	case r.Method == http.MethodPut && strings.HasPrefix(path, "/users/") && strings.HasSuffix(path, "/roles"):
