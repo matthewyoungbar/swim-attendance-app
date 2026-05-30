@@ -38,6 +38,7 @@ func NewClient(ctx context.Context) (*Client, error) {
 func (c *Client) UpsertPractice(ctx context.Context, p models.Practice) error {
 	p.PK = p.ID
 	p.SK = models.PracticeSK
+	p.RecordType = models.RecordTypePractice
 	item, err := attributevalue.MarshalMap(p)
 	if err != nil {
 		return fmt.Errorf("marshal practice: %w", err)
@@ -121,6 +122,7 @@ func (c *Client) IncrementSignupCount(ctx context.Context, practiceID string, de
 func (c *Client) CreateSignup(ctx context.Context, s models.Signup) error {
 	s.PK = s.PracticeID
 	s.SK = s.SwimmerEmail
+	s.RecordType = models.RecordTypeSignup
 	item, err := attributevalue.MarshalMap(s)
 	if err != nil {
 		return fmt.Errorf("marshal signup: %w", err)

@@ -6,11 +6,18 @@ const (
 	PracticeSK        = "PRACTICE"
 	UserSK            = "USER"
 	WebAuthnSessionSK = "SESSION"
+
+	RecordTypePractice    = "PRACTICE"
+	RecordTypeSignup      = "SIGNUP"
+	RecordTypeUser        = "USER"
+	RecordTypePasskey     = "PASSKEY"
+	RecordTypeWASession   = "WA_SESSION"
 )
 
 type Practice struct {
 	PK          string    `json:"-" dynamodbav:"pk"`
 	SK          string    `json:"-" dynamodbav:"sk"`
+	RecordType  string    `json:"-" dynamodbav:"recordType"`
 	ID          string    `json:"id" dynamodbav:"id"`
 	Title       string    `json:"title" dynamodbav:"title"`
 	Description string    `json:"description" dynamodbav:"description"`
@@ -28,6 +35,7 @@ type Practice struct {
 type Signup struct {
 	PK           string    `json:"-" dynamodbav:"pk"`
 	SK           string    `json:"-" dynamodbav:"sk"`
+	RecordType   string    `json:"-" dynamodbav:"recordType"`
 	PracticeID   string    `json:"practiceId" dynamodbav:"practiceId"`
 	SwimmerEmail string    `json:"swimmerEmail" dynamodbav:"swimmerEmail"`
 	SwimmerName  string    `json:"swimmerName" dynamodbav:"swimmerName"`
@@ -38,6 +46,7 @@ type Signup struct {
 type User struct {
 	PK            string    `json:"-" dynamodbav:"pk"`
 	SK            string    `json:"-" dynamodbav:"sk"`
+	RecordType    string    `json:"-" dynamodbav:"recordType"`
 	Email         string    `json:"email" dynamodbav:"email"`
 	FirstName     string    `json:"firstName" dynamodbav:"firstName"`
 	LastName      string    `json:"lastName" dynamodbav:"lastName"`
@@ -55,6 +64,7 @@ type User struct {
 type Passkey struct {
 	PK             string    `json:"-" dynamodbav:"pk"`
 	SK             string    `json:"-" dynamodbav:"sk"`
+	RecordType     string    `json:"-" dynamodbav:"recordType"`
 	UserEmail      string    `json:"-" dynamodbav:"userEmail"`
 	CredentialJSON string    `json:"-" dynamodbav:"credentialJSON"`
 	CreatedAt      time.Time `json:"createdAt" dynamodbav:"createdAt"`
@@ -64,8 +74,9 @@ type Passkey struct {
 }
 
 type WebAuthnSession struct {
-	PK   string `dynamodbav:"pk"`
-	SK   string `dynamodbav:"sk"`
+	PK         string `dynamodbav:"pk"`
+	SK         string `dynamodbav:"sk"`
+	RecordType string `dynamodbav:"recordType"`
 	Data string `dynamodbav:"data"`
 	TTL  int64  `dynamodbav:"ttl"`
 }

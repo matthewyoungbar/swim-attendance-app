@@ -15,6 +15,7 @@ import (
 func (c *Client) CreateUser(ctx context.Context, u models.User) error {
 	u.PK = "USER#" + u.Email
 	u.SK = models.UserSK
+	u.RecordType = models.RecordTypeUser
 	item, err := attributevalue.MarshalMap(u)
 	if err != nil {
 		return fmt.Errorf("marshal user: %w", err)
@@ -125,10 +126,11 @@ func (c *Client) UpdateUserRoles(ctx context.Context, email string, isAdmin, isC
 
 func (c *Client) SaveWebAuthnSession(ctx context.Context, sessionID string, data []byte) error {
 	s := models.WebAuthnSession{
-		PK:   "WA_SESSION#" + sessionID,
-		SK:   models.WebAuthnSessionSK,
-		Data: string(data),
-		TTL:  time.Now().Add(5 * time.Minute).Unix(),
+		PK:         "WA_SESSION#" + sessionID,
+		SK:         models.WebAuthnSessionSK,
+		RecordType: models.RecordTypeWASession,
+		Data:       string(data),
+		TTL:        time.Now().Add(5 * time.Minute).Unix(),
 	}
 	item, err := attributevalue.MarshalMap(s)
 	if err != nil {

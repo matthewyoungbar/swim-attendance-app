@@ -27,6 +27,7 @@ func (c *Client) SavePasskey(ctx context.Context, webAuthnID []byte, email strin
 	p := models.Passkey{
 		PK:             "PASSKEY#" + b64key(webAuthnID),
 		SK:             "PASSKEY#" + b64key(cred.ID),
+		RecordType:     models.RecordTypePasskey,
 		UserEmail:      email,
 		CredentialJSON: string(credJSON),
 		CreatedAt:      time.Now().UTC(),
