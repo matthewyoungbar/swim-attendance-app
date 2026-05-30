@@ -36,19 +36,28 @@ type Signup struct {
 }
 
 type User struct {
-	PK              string    `json:"-" dynamodbav:"pk"`
-	SK              string    `json:"-" dynamodbav:"sk"`
-	Email           string    `json:"email" dynamodbav:"email"`
-	FirstName       string    `json:"firstName" dynamodbav:"firstName"`
-	LastName        string    `json:"lastName" dynamodbav:"lastName"`
-	PreferredName   string    `json:"preferredName,omitempty" dynamodbav:"preferredName,omitempty"`
-	Phone           string    `json:"phone,omitempty" dynamodbav:"phone,omitempty"`
-	IsAdmin         bool      `json:"isAdmin" dynamodbav:"isAdmin,omitempty"`
-	IsCoach         bool      `json:"isCoach" dynamodbav:"isCoach,omitempty"`
-	IsActive        bool      `json:"isActive" dynamodbav:"isActive"`
-	WebAuthnID      []byte    `json:"-" dynamodbav:"webAuthnId"`
-	CredentialsJSON string    `json:"-" dynamodbav:"credentials"`
-	CreatedAt       time.Time `json:"createdAt" dynamodbav:"createdAt"`
+	PK            string    `json:"-" dynamodbav:"pk"`
+	SK            string    `json:"-" dynamodbav:"sk"`
+	Email         string    `json:"email" dynamodbav:"email"`
+	FirstName     string    `json:"firstName" dynamodbav:"firstName"`
+	LastName      string    `json:"lastName" dynamodbav:"lastName"`
+	PreferredName string    `json:"preferredName,omitempty" dynamodbav:"preferredName,omitempty"`
+	Phone         string    `json:"phone,omitempty" dynamodbav:"phone,omitempty"`
+	IsAdmin       bool      `json:"isAdmin" dynamodbav:"isAdmin,omitempty"`
+	IsCoach       bool      `json:"isCoach" dynamodbav:"isCoach,omitempty"`
+	IsActive      bool      `json:"isActive" dynamodbav:"isActive"`
+	WebAuthnID    []byte    `json:"-" dynamodbav:"webAuthnId"`
+	CreatedAt     time.Time `json:"createdAt" dynamodbav:"createdAt"`
+}
+
+// Passkey stores a single WebAuthn credential for a user.
+// PK = "PASSKEY#" + base64url(webAuthnID), SK = "PASSKEY#" + base64url(credentialID)
+type Passkey struct {
+	PK             string    `json:"-" dynamodbav:"pk"`
+	SK             string    `json:"-" dynamodbav:"sk"`
+	UserEmail      string    `json:"-" dynamodbav:"userEmail"`
+	CredentialJSON string    `json:"-" dynamodbav:"credentialJSON"`
+	CreatedAt      time.Time `json:"createdAt" dynamodbav:"createdAt"`
 }
 
 type WebAuthnSession struct {

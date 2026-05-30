@@ -123,21 +123,6 @@ func (c *Client) UpdateUserRoles(ctx context.Context, email string, isAdmin, isC
 	return nil
 }
 
-func (c *Client) UpdateUserCredentials(ctx context.Context, email, credentialsJSON string) error {
-	_, err := c.ddb.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String(c.table),
-		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: "USER#" + email},
-			"sk": &types.AttributeValueMemberS{Value: models.UserSK},
-		},
-		UpdateExpression: aws.String("SET credentials = :creds"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":creds": &types.AttributeValueMemberS{Value: credentialsJSON},
-		},
-	})
-	return err
-}
-
 func (c *Client) SaveWebAuthnSession(ctx context.Context, sessionID string, data []byte) error {
 	s := models.WebAuthnSession{
 		PK:   "WA_SESSION#" + sessionID,

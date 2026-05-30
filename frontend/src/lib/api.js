@@ -51,7 +51,7 @@ export const api = {
     me:               ()       => request('GET', '/auth/me'),
     registerBegin:    (data)   => request('POST', '/auth/register/begin', data),
     registerComplete: (data)   => request('POST', '/auth/register/complete', data),
-    loginBegin:       (data)   => request('POST', '/auth/login/begin', data),
+    loginBegin:       ()       => request('POST', '/auth/login/begin'),
     loginComplete:    (data)   => request('POST', '/auth/login/complete', data),
   },
 }

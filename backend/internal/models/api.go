@@ -13,10 +13,6 @@ type RegisterBeginRequest struct {
 	Phone         string `json:"phone,omitempty"`
 }
 
-type LoginBeginRequest struct {
-	Email string `json:"email"`
-}
-
 type APIResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`

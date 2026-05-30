@@ -17,7 +17,6 @@ import (
 
 // sessionBlob is stored in DynamoDB for the duration of a WebAuthn ceremony.
 type sessionBlob struct {
-	Email   string               `json:"email"`
 	Profile *registrationProfile `json:"profile,omitempty"` // set only for registration
 	Session walib.SessionData    `json:"session"`
 }
@@ -39,34 +38,16 @@ type webAuthnUser struct {
 	credentials []walib.Credential
 }
 
-func (u *webAuthnUser) WebAuthnID() []byte                        { return u.id }
-func (u *webAuthnUser) WebAuthnName() string                      { return u.email }
-func (u *webAuthnUser) WebAuthnDisplayName() string               { return u.displayName }
-func (u *webAuthnUser) WebAuthnCredentials() []walib.Credential   { return u.credentials }
-func (u *webAuthnUser) WebAuthnIcon() string                      { return "" }
+func (u *webAuthnUser) WebAuthnID() []byte                      { return u.id }
+func (u *webAuthnUser) WebAuthnName() string                    { return u.email }
+func (u *webAuthnUser) WebAuthnDisplayName() string             { return u.displayName }
+func (u *webAuthnUser) WebAuthnCredentials() []walib.Credential { return u.credentials }
+func (u *webAuthnUser) WebAuthnIcon() string                    { return "" }
 
 func newSessionID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return fmt.Sprintf("%x", b)
-}
-
-func unmarshalCredentials(s string) ([]walib.Credential, error) {
-	if s == "" {
-		return nil, nil
-	}
-	var creds []walib.Credential
-	return creds, json.Unmarshal([]byte(s), &creds)
-}
-
-func updateCredential(creds []walib.Credential, updated walib.Credential) []walib.Credential {
-	for i, c := range creds {
-		if bytes.Equal(c.ID, updated.ID) {
-			creds[i] = updated
-			return creds
-		}
-	}
-	return append(creds, updated)
 }
 
 // GET /auth/check?email=
@@ -112,7 +93,10 @@ func (h *Handler) registerBegin(w http.ResponseWriter, r *http.Request) {
 	}
 	waUser := &webAuthnUser{id: waID, email: req.Email, displayName: displayName}
 
-	options, sessionData, err := h.wa.BeginRegistration(waUser)
+	// Require preferred resident key so the passkey is discoverable without an email prompt.
+	options, sessionData, err := h.wa.BeginRegistration(waUser,
+		walib.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred),
+	)
 	if err != nil {
 		log.Printf("ERROR registerBegin: %v", err)
 		jsonError(w, "failed to begin registration", http.StatusInternalServerError)
@@ -120,7 +104,6 @@ func (h *Handler) registerBegin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	blob := sessionBlob{
-		Email: req.Email,
 		Profile: &registrationProfile{
 			Email:         req.Email,
 			FirstName:     req.FirstName,
@@ -187,21 +170,25 @@ func (h *Handler) registerComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	credsJSON, _ := json.Marshal([]walib.Credential{*cred})
 	user := models.User{
-		Email:           blob.Profile.Email,
-		FirstName:       blob.Profile.FirstName,
-		LastName:        blob.Profile.LastName,
-		PreferredName:   blob.Profile.PreferredName,
-		Phone:           blob.Profile.Phone,
-		WebAuthnID:      blob.Profile.WebAuthnID,
-		CredentialsJSON: string(credsJSON),
-		CreatedAt:       time.Now().UTC(),
-		IsActive:        true,
+		Email:         blob.Profile.Email,
+		FirstName:     blob.Profile.FirstName,
+		LastName:      blob.Profile.LastName,
+		PreferredName: blob.Profile.PreferredName,
+		Phone:         blob.Profile.Phone,
+		WebAuthnID:    blob.Profile.WebAuthnID,
+		CreatedAt:     time.Now().UTC(),
+		IsActive:      true,
 	}
 	if err := h.db.CreateUser(r.Context(), user); err != nil {
 		log.Printf("ERROR registerComplete CreateUser: %v", err)
 		jsonError(w, "failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.db.SavePasskey(r.Context(), user.WebAuthnID, user.Email, *cred); err != nil {
+		log.Printf("ERROR registerComplete SavePasskey: %v", err)
+		jsonError(w, "failed to save passkey", http.StatusInternalServerError)
 		return
 	}
 
@@ -218,45 +205,16 @@ func (h *Handler) registerComplete(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]interface{}{"token": token, "user": user})
 }
 
-// POST /auth/login/begin
+// POST /auth/login/begin — starts a discoverable (email-free) passkey login.
 func (h *Handler) loginBegin(w http.ResponseWriter, r *http.Request) {
-	var req models.LoginBeginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Email == "" {
-		jsonError(w, "email required", http.StatusBadRequest)
-		return
-	}
-
-	user, err := h.db.GetUser(r.Context(), req.Email)
-	if err != nil || user == nil {
-		jsonError(w, "user not found", http.StatusNotFound)
-		return
-	}
-
-	creds, err := unmarshalCredentials(user.CredentialsJSON)
-	if err != nil || len(creds) == 0 {
-		jsonError(w, "no passkey registered", http.StatusBadRequest)
-		return
-	}
-
-	waUser := &webAuthnUser{
-		id:          user.WebAuthnID,
-		email:       user.Email,
-		displayName: user.FirstName + " " + user.LastName,
-		credentials: creds,
-	}
-
-	options, sessionData, err := h.wa.BeginLogin(waUser)
+	options, sessionData, err := h.wa.BeginDiscoverableLogin()
 	if err != nil {
 		log.Printf("ERROR loginBegin: %v", err)
 		jsonError(w, "failed to begin login", http.StatusInternalServerError)
 		return
 	}
 
-	blob := sessionBlob{Email: req.Email, Session: *sessionData}
+	blob := sessionBlob{Session: *sessionData}
 	blobJSON, _ := json.Marshal(blob)
 	sessionID := newSessionID()
 	if err := h.db.SaveWebAuthnSession(r.Context(), sessionID, blobJSON); err != nil {
@@ -287,43 +245,61 @@ func (h *Handler) loginComplete(w http.ResponseWriter, r *http.Request) {
 	var blob sessionBlob
 	json.Unmarshal(blobJSON, &blob)
 
-	user, err := h.db.GetUser(r.Context(), blob.Email)
-	if err != nil || user == nil {
-		jsonError(w, "user not found", http.StatusNotFound)
-		return
-	}
-
-	creds, _ := unmarshalCredentials(user.CredentialsJSON)
-	waUser := &webAuthnUser{
-		id:          user.WebAuthnID,
-		email:       user.Email,
-		displayName: user.FirstName + " " + user.LastName,
-		credentials: creds,
-	}
-
 	parsed, err := protocol.ParseCredentialRequestResponseBody(bytes.NewReader(req.Credential))
 	if err != nil {
 		jsonError(w, "invalid credential: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	updatedCred, err := h.wa.ValidateLogin(waUser, blob.Session, parsed)
+	var resolvedUser *models.User
+
+	handler := func(rawID, userHandle []byte) (walib.User, error) {
+		passkeys, err := h.db.GetPasskeys(r.Context(), userHandle)
+		if err != nil || len(passkeys) == 0 {
+			return nil, fmt.Errorf("user not found")
+		}
+		user, err := h.db.GetUser(r.Context(), passkeys[0].UserEmail)
+		if err != nil || user == nil {
+			return nil, fmt.Errorf("user not found")
+		}
+		creds := make([]walib.Credential, 0, len(passkeys))
+		for _, pk := range passkeys {
+			var cred walib.Credential
+			if err := json.Unmarshal([]byte(pk.CredentialJSON), &cred); err == nil {
+				creds = append(creds, cred)
+			}
+		}
+		resolvedUser = user
+		return &webAuthnUser{
+			id:          user.WebAuthnID,
+			email:       user.Email,
+			displayName: user.FirstName + " " + user.LastName,
+			credentials: creds,
+		}, nil
+	}
+
+	updatedCred, err := h.wa.ValidateDiscoverableLogin(handler, blob.Session, parsed)
 	if err != nil {
 		jsonError(w, "login failed: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
-	newCreds := updateCredential(creds, *updatedCred)
-	newCredsJSON, _ := json.Marshal(newCreds)
-	h.db.UpdateUserCredentials(r.Context(), user.Email, string(newCredsJSON))
+	if resolvedUser == nil {
+		jsonError(w, "login failed", http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.db.UpdatePasskey(r.Context(), resolvedUser.WebAuthnID, *updatedCred); err != nil {
+		log.Printf("WARN loginComplete UpdatePasskey: %v", err)
+	}
 	h.db.DeleteWebAuthnSession(r.Context(), req.SessionID)
 
-	token, err := auth.IssueToken(user.Email)
+	token, err := auth.IssueToken(resolvedUser.Email)
 	if err != nil {
 		log.Printf("ERROR loginComplete IssueToken: %v", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	jsonOK(w, map[string]interface{}{"token": token, "user": user})
+	jsonOK(w, map[string]interface{}{"token": token, "user": resolvedUser})
 }

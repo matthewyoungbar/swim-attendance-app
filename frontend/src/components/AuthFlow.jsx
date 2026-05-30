@@ -2,16 +2,31 @@ import React, { useState } from 'react'
 import { api } from '../lib/api'
 import { performRegistration, performLogin, storeAuth } from '../lib/auth'
 
-const STEPS = { EMAIL: 'email', REGISTER: 'register', LOADING: 'loading' }
+const STEPS = { LANDING: 'landing', EMAIL: 'email', REGISTER: 'register', LOADING: 'loading' }
 
 export default function AuthFlow({ onAuth }) {
-  const [step, setStep]   = useState(STEPS.EMAIL)
+  const [step, setStep]   = useState(STEPS.LANDING)
   const [email, setEmail] = useState('')
   const [form, setForm]   = useState({ firstName: '', lastName: '', preferredName: '', phone: '' })
   const [error, setError] = useState(null)
 
   function field(key) {
     return { value: form[key], onChange: e => setForm(f => ({ ...f, [key]: e.target.value })) }
+  }
+
+  async function handleSignIn() {
+    setError(null)
+    setStep(STEPS.LOADING)
+    try {
+      const { sessionId, options } = await api.auth.loginBegin()
+      const body = await performLogin(options, sessionId)
+      const { token, user } = await api.auth.loginComplete(body)
+      storeAuth(token, user)
+      onAuth(user)
+    } catch (err) {
+      setError(err.message)
+      setStep(STEPS.LANDING)
+    }
   }
 
   async function handleEmailSubmit(e) {
@@ -24,24 +39,11 @@ export default function AuthFlow({ onAuth }) {
     try {
       const { exists } = await api.auth.check(trimmed)
       if (exists) {
-        await doLogin(trimmed)
+        setError('An account with this email already exists. Sign in with your passkey instead.')
+        setStep(STEPS.EMAIL)
       } else {
         setStep(STEPS.REGISTER)
       }
-    } catch (err) {
-      setError(err.message)
-      setStep(STEPS.EMAIL)
-    }
-  }
-
-  async function doLogin(loginEmail) {
-    setStep(STEPS.LOADING)
-    try {
-      const { sessionId, options } = await api.auth.loginBegin({ email: loginEmail })
-      const body = await performLogin(options, sessionId)
-      const { token, user } = await api.auth.loginComplete(body)
-      storeAuth(token, user)
-      onAuth(user)
     } catch (err) {
       setError(err.message)
       setStep(STEPS.EMAIL)
@@ -111,25 +113,49 @@ export default function AuthFlow({ onAuth }) {
     )
   }
 
+  if (step === STEPS.EMAIL) {
+    return (
+      <div className="login-card">
+        <h1>Create account</h1>
+        <p className="login-subtitle">Enter your email to get started</p>
+        <form onSubmit={handleEmailSubmit} className="login-form">
+          <div className="field">
+            <label htmlFor="email">Email address</label>
+            <input
+              id="email"
+              type="email"
+              placeholder="alex@example.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              autoFocus
+            />
+          </div>
+          {error && <p className="login-error">{error}</p>}
+          <button type="submit" className="login-btn">Continue →</button>
+          <button type="button" className="login-btn" style={{ background: 'none', color: '#64748b', marginTop: 4 }}
+            onClick={() => { setStep(STEPS.LANDING); setError(null) }}>
+            ← Back
+          </button>
+        </form>
+      </div>
+    )
+  }
+
   return (
     <div className="login-card">
-      <h1>Welcome back</h1>
+      <h1>Welcome</h1>
       <p className="login-subtitle">Sign in with your passkey</p>
-      <form onSubmit={handleEmailSubmit} className="login-form">
-        <div className="field">
-          <label htmlFor="email">Email address</label>
-          <input
-            id="email"
-            type="email"
-            placeholder="alex@example.com"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            autoFocus
-          />
-        </div>
-        {error && <p className="login-error">{error}</p>}
-        <button type="submit" className="login-btn">Continue →</button>
-      </form>
+      {error && <p className="login-error">{error}</p>}
+      <div className="login-form">
+        <button onClick={handleSignIn} className="login-btn">Sign in with passkey →</button>
+        <button
+          className="login-btn"
+          style={{ background: 'none', color: '#64748b', marginTop: 4 }}
+          onClick={() => { setStep(STEPS.EMAIL); setError(null) }}
+        >
+          Create account
+        </button>
+      </div>
     </div>
   )
 }
