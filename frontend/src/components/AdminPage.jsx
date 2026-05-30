@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import './AdminPage.css'
-import { api } from '../lib/api'
+import { api, importRoster } from '../lib/api'
 
 export default function AdminPage({ currentUserEmail }) {
   const [users, setUsers] = useState([])
@@ -8,6 +8,9 @@ export default function AdminPage({ currentUserEmail }) {
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState({}) // email → bool
   const [query, setQuery] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState(null)
+  const fileInputRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -24,6 +27,23 @@ export default function AdminPage({ currentUserEmail }) {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  async function handleImport(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    e.target.value = ''
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const result = await importRoster(file)
+      setImportResult({ ok: true, ...result })
+      if (result.created > 0) await load()
+    } catch (err) {
+      setImportResult({ ok: false, error: err.message })
+    } finally {
+      setImporting(false)
+    }
+  }
 
   async function handleToggle(user, field) {
     const updated = { isAdmin: user.isAdmin, isCoach: user.isCoach, isActive: user.isActive, [field]: !user[field] }
@@ -80,7 +100,15 @@ export default function AdminPage({ currentUserEmail }) {
           onChange={e => setQuery(e.target.value)}
           autoComplete="off"
         />
+        <input ref={fileInputRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={handleImport} />
+        <button className="admin-import-btn" onClick={() => fileInputRef.current.click()} disabled={importing}>
+          {importing ? 'Importing…' : 'Import roster'}
+        </button>
       </div>
+
+      {importResult && (
+        <ImportResultModal result={importResult} onClose={() => setImportResult(null)} />
+      )}
 
       <div className="admin-table-wrap">
         <table className="admin-table">
@@ -143,6 +171,81 @@ export default function AdminPage({ currentUserEmail }) {
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+function ImportResultModal({ result, onClose }) {
+  if (!result.ok) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-card" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>Import failed</h2>
+            <button className="modal-close" onClick={onClose}>✕</button>
+          </div>
+          <p className="modal-error">{result.error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  const { created = [], deactivated = [], skipped = 0, errors = [] } = result
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Import complete</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="modal-section">
+            <div className="modal-section-label">
+              <span className={`modal-count ${created.length > 0 ? 'positive' : ''}`}>{created.length}</span>
+              new members added
+            </div>
+            {created.length > 0 && (
+              <ul className="modal-list">
+                {created.map(u => (
+                  <li key={u.email}><span className="modal-name">{u.name}</span><span className="modal-email">{u.email}</span></li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="modal-section">
+            <div className="modal-section-label">
+              <span className={`modal-count ${deactivated.length > 0 ? 'negative' : ''}`}>{deactivated.length}</span>
+              members deactivated (not in roster)
+            </div>
+            {deactivated.length > 0 && (
+              <ul className="modal-list">
+                {deactivated.map(u => (
+                  <li key={u.email}><span className="modal-name">{u.name}</span><span className="modal-email">{u.email}</span></li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="modal-section">
+            <div className="modal-section-label">
+              <span className="modal-count">{skipped}</span>
+              already in system (no change)
+            </div>
+          </div>
+
+          {errors.length > 0 && (
+            <div className="modal-section modal-errors">
+              <div className="modal-section-label"><span className="modal-count negative">{errors.length}</span> errors</div>
+              <ul className="modal-list">
+                {errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

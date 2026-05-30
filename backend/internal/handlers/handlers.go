@@ -143,6 +143,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.addPasskeyComplete(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/passkeys/"):
 		h.deletePasskey(w, r, strings.TrimPrefix(path, "/passkeys/"))
+	case r.Method == http.MethodPost && path == "/admin/import-roster":
+		h.importRoster(w, r)
 	case r.Method == http.MethodGet && path == "/users":
 		h.listUsers(w, r)
 	case r.Method == http.MethodPut && strings.HasPrefix(path, "/users/") && strings.HasSuffix(path, "/roles"):

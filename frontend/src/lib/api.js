@@ -2,6 +2,20 @@ import { getToken } from './auth.js'
 
 const BASE_URL = import.meta.env.DEV ? '' : '/api'
 
+export function importRoster(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const token = getToken()
+  return fetch(`${BASE_URL}/admin/import-roster`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  }).then(r => r.json()).then(json => {
+    if (!json.success) throw new Error(json.error || 'Upload failed')
+    return json.data
+  })
+}
+
 async function request(method, path, body, extraHeaders = {}) {
   const token = getToken()
   const headers = {

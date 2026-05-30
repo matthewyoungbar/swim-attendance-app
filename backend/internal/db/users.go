@@ -100,6 +100,24 @@ func (c *Client) ListUsers(ctx context.Context) ([]models.User, error) {
 	return users, nil
 }
 
+func (c *Client) UpdateUserProfile(ctx context.Context, email, firstName, lastName, preferredName, phone string) error {
+	_, err := c.ddb.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(c.table),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "USER#" + email},
+			"sk": &types.AttributeValueMemberS{Value: models.UserSK},
+		},
+		UpdateExpression: aws.String("SET firstName = :fn, lastName = :ln, preferredName = :pn, phone = :ph"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":fn": &types.AttributeValueMemberS{Value: firstName},
+			":ln": &types.AttributeValueMemberS{Value: lastName},
+			":pn": &types.AttributeValueMemberS{Value: preferredName},
+			":ph": &types.AttributeValueMemberS{Value: phone},
+		},
+	})
+	return err
+}
+
 func (c *Client) UpdateUserRoles(ctx context.Context, email string, isAdmin, isCoach, isActive bool) error {
 	_, err := c.ddb.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(c.table),

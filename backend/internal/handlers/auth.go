@@ -63,7 +63,18 @@ func (h *Handler) checkUser(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	jsonOK(w, map[string]bool{"exists": user != nil})
+	if user == nil {
+		jsonOK(w, map[string]interface{}{"exists": false})
+		return
+	}
+	passkeys, _ := h.db.GetPasskeys(r.Context(), user.WebAuthnID)
+	jsonOK(w, map[string]interface{}{
+		"exists":        true,
+		"hasPasskey":    len(passkeys) > 0,
+		"firstName":     user.FirstName,
+		"lastName":      user.LastName,
+		"preferredName": user.PreferredName,
+	})
 }
 
 // POST /auth/register/begin
@@ -78,14 +89,20 @@ func (h *Handler) registerBegin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var waID []byte
 	existing, _ := h.db.GetUser(r.Context(), req.Email)
 	if existing != nil {
-		jsonError(w, "user already exists", http.StatusConflict)
-		return
+		passkeys, _ := h.db.GetPasskeys(r.Context(), existing.WebAuthnID)
+		if len(passkeys) > 0 {
+			jsonError(w, "user already exists", http.StatusConflict)
+			return
+		}
+		// Pre-created user (imported) with no passkey yet — reuse their WebAuthnID.
+		waID = existing.WebAuthnID
+	} else {
+		waID = make([]byte, 16)
+		rand.Read(waID)
 	}
-
-	waID := make([]byte, 16)
-	rand.Read(waID)
 
 	displayName := req.FirstName + " " + req.LastName
 	if req.PreferredName != "" {
@@ -170,23 +187,38 @@ func (h *Handler) registerComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := models.User{
-		Email:         blob.Profile.Email,
-		FirstName:     blob.Profile.FirstName,
-		LastName:      blob.Profile.LastName,
-		PreferredName: blob.Profile.PreferredName,
-		Phone:         blob.Profile.Phone,
-		WebAuthnID:    blob.Profile.WebAuthnID,
-		CreatedAt:     time.Now().UTC(),
-		IsActive:      true,
-	}
-	if err := h.db.CreateUser(r.Context(), user); err != nil {
-		log.Printf("ERROR registerComplete CreateUser: %v", err)
-		jsonError(w, "failed to create user", http.StatusInternalServerError)
-		return
+	var responseUser models.User
+	existingUser, _ := h.db.GetUser(r.Context(), blob.Profile.Email)
+	if existingUser == nil {
+		newUser := models.User{
+			Email:         blob.Profile.Email,
+			FirstName:     blob.Profile.FirstName,
+			LastName:      blob.Profile.LastName,
+			PreferredName: blob.Profile.PreferredName,
+			Phone:         blob.Profile.Phone,
+			WebAuthnID:    blob.Profile.WebAuthnID,
+			CreatedAt:     time.Now().UTC(),
+			IsActive:      true,
+		}
+		if err := h.db.CreateUser(r.Context(), newUser); err != nil {
+			log.Printf("ERROR registerComplete CreateUser: %v", err)
+			jsonError(w, "failed to create user", http.StatusInternalServerError)
+			return
+		}
+		responseUser = newUser
+	} else {
+		// Pre-created user completing their passkey setup — update profile with submitted data.
+		h.db.UpdateUserProfile(r.Context(), blob.Profile.Email,
+			blob.Profile.FirstName, blob.Profile.LastName,
+			blob.Profile.PreferredName, blob.Profile.Phone)
+		responseUser = *existingUser
+		responseUser.FirstName = blob.Profile.FirstName
+		responseUser.LastName = blob.Profile.LastName
+		responseUser.PreferredName = blob.Profile.PreferredName
+		responseUser.Phone = blob.Profile.Phone
 	}
 
-	if err := h.db.SavePasskey(r.Context(), user.WebAuthnID, user.Email, *cred); err != nil {
+	if err := h.db.SavePasskey(r.Context(), blob.Profile.WebAuthnID, blob.Profile.Email, *cred); err != nil {
 		log.Printf("ERROR registerComplete SavePasskey: %v", err)
 		jsonError(w, "failed to save passkey", http.StatusInternalServerError)
 		return
@@ -194,7 +226,7 @@ func (h *Handler) registerComplete(w http.ResponseWriter, r *http.Request) {
 
 	h.db.DeleteWebAuthnSession(r.Context(), req.SessionID)
 
-	token, err := auth.IssueToken(user.Email)
+	token, err := auth.IssueToken(responseUser.Email)
 	if err != nil {
 		log.Printf("ERROR registerComplete IssueToken: %v", err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
@@ -202,7 +234,7 @@ func (h *Handler) registerComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	jsonOK(w, map[string]interface{}{"token": token, "user": user})
+	jsonOK(w, map[string]interface{}{"token": token, "user": responseUser})
 }
 
 // POST /auth/login/begin — starts a discoverable (email-free) passkey login.
